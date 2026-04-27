@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import gpxpy
+import lxml.etree as lxml_etree
 
 SPORT_TYPE_MAP = {
     "running": "running",
@@ -36,9 +37,20 @@ class ParsedActivity:
     trackpoints: list[ParsedTrackpoint] = field(default_factory=list)
 
 
-def parse_gpx(path: Path, fallback_sport: str = "other") -> ParsedActivity:
+def _read_gpx(path: Path):
     with open(path, "rb") as f:
-        gpx = gpxpy.parse(f)
+        content = f.read()
+    try:
+        return gpxpy.parse(content)
+    except Exception:
+        # Fallback: lxml with error recovery for malformed XML (e.g. RunnerUp truncation bug)
+        parser = lxml_etree.XMLParser(recover=True)
+        tree = lxml_etree.fromstring(content, parser=parser)
+        return gpxpy.parse(lxml_etree.tostring(tree))
+
+
+def parse_gpx(path: Path, fallback_sport: str = "other") -> ParsedActivity:
+    gpx = _read_gpx(path)
 
     sport_type = fallback_sport
     if gpx.tracks:
