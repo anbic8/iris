@@ -80,10 +80,11 @@ I.R.I.S. steht für „Improve running insight system“.
 - [x] Anzahl Aktivitäten, Gesamthöhenmeter, Gesamtzeit
 
 ### 2.3 Bestzeiten / Personal Records ✅
-- [x] Bestzeit über Standarddistanzen: 1 km, 5 km, 10 km, Halbmarathon, Marathon
+- [x] Bestzeit über Standarddistanzen: 1 km, 5 km, 10 km, Halbmarathon, Marathon (Sliding Window über Trackpoints)
 - [x] Schnellste Durchschnitts-Pace pro Aktivität
 - [x] Längste Aktivität (Distanz / Zeit)
 - [x] Höchste Höhenmeter
+- [x] In-Memory-Cache pro User, Invalidierung bei neuem GPX-Import oder Sportart-Änderung
 - [ ] PR wird automatisch markiert wenn neue Aktivität einen Rekord bricht *(Phase 4)*
 
 ### 2.4 Einzelaktivität-Detailseite ✅
@@ -99,17 +100,17 @@ I.R.I.S. steht für „Improve running insight system“.
 > **Grobziel:** Strecke auf der Karte, Herzfrequenz sinnvoll ausgewertet.
 > **Meilenstein:** Aktivität auf der Karte mit HR-Farbkodierung, Zonenanalyse funktioniert.
 
-### 3.1 Leaflet-Karte pro Aktivität
-- [ ] Streckenverlauf als Polyline auf OSM
-- [ ] Start/Ziel-Marker
-- [ ] Hover über Strecke zeigt Pace/HR an diesem Punkt
-- [ ] Farbkodierung der Strecke nach Pace oder HR (Heatmap-Style)
+### 3.1 Leaflet-Karte pro Aktivität ✅
+- [x] Streckenverlauf als Polyline auf OSM
+- [x] Start/Ziel-Marker
+- [x] Hover über Strecke zeigt Pace/HR an diesem Punkt (Tooltip)
+- [x] Farbkodierung der Strecke nach Pace oder HR (Heatmap-Style, Toggle-Button)
 
-### 3.2 HR-Zonen-Analyse
-- [ ] Konfigurierbare Maximalpuls pro User (Einstellungsseite)
-- [ ] Automatische Berechnung der 5 HR-Zonen
-- [ ] Zeit in jeder Zone pro Aktivität
-- [ ] Donut-Chart zur Zonenverteilung
+### 3.2 HR-Zonen-Analyse ✅
+- [x] Konfigurierbare Maximalpuls pro User (Einstellungsseite)
+- [x] Automatische Berechnung der 5 HR-Zonen
+- [x] Zeit in jeder Zone pro Aktivität
+- [x] Donut-Chart zur Zonenverteilung
 
 ### 3.3 Höhenprofil interaktiv
 - [ ] Chart.js Höhenprofil mit Hover-Tooltip

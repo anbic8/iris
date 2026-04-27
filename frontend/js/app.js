@@ -392,6 +392,7 @@ async function loadActivity(id) {
             ${hasEle  ? '<h3>Höhenprofil</h3><div class="chart-box"><canvas id="chart-ele"></canvas></div>'   : ""}
             ${hasPace ? '<h3>Pace</h3><div class="chart-box"><canvas id="chart-pace"></canvas></div>'         : ""}
             ${hasHr   ? '<h3>Herzfrequenz</h3><div class="chart-box"><canvas id="chart-hr"></canvas></div>'   : ""}
+            ${hasHr && currentUser.max_hr ? '<h3>HR-Zonen</h3><div class="chart-box chart-box--zones"><canvas id="chart-hr-zones"></canvas></div>' : ""}
         `;
 
         document.getElementById("back-btn").addEventListener("click", loadActivities);
@@ -401,6 +402,7 @@ async function loadActivity(id) {
         if (trackpoints.length > 0) {
             renderMap(trackpoints);
             renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
+            if (hasHr && currentUser.max_hr) renderHrZones(trackpoints, currentUser.max_hr);
         }
     } catch (e) {
         content.innerHTML = `<p class="error">${e.message}</p>`;
@@ -480,11 +482,79 @@ function renderMap(trackpoints) {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
     }).addTo(map);
+
     const latlngs = trackpoints.map(p => [p.lat, p.lon]);
-    const poly = L.polyline(latlngs, { color: "#1a1a2e", weight: 3 }).addTo(map);
-    map.fitBounds(poly.getBounds(), { padding: [20, 20] });
-    L.marker(latlngs[0]).addTo(map).bindPopup("Start");
-    L.marker(latlngs[latlngs.length - 1]).addTo(map).bindPopup("Ziel");
+    map.fitBounds(L.polyline(latlngs).getBounds(), { padding: [20, 20] });
+
+    const mkIcon = html => L.divIcon({ html, className: "map-pin", iconSize: [20, 20], iconAnchor: [10, 10] });
+    L.marker(latlngs[0], { icon: mkIcon("🟢") }).addTo(map);
+    L.marker(latlngs[latlngs.length - 1], { icon: mkIcon("🔴") }).addTo(map);
+
+    const hasHr = trackpoints.some(p => p.hr !== null);
+
+    // Per-segment smoothed pace
+    const rawPace = [null];
+    for (let i = 1; i < trackpoints.length; i++) {
+        const dKm  = haversineKm(trackpoints[i-1].lat, trackpoints[i-1].lon, trackpoints[i].lat, trackpoints[i].lon);
+        const dMin = (new Date(trackpoints[i].timestamp) - new Date(trackpoints[i-1].timestamp)) / 60000;
+        const p = (dKm >= 0.001 && dMin > 0) ? dMin / dKm : null;
+        rawPace.push(p && p >= 1.5 && p <= 30 ? p : null);
+    }
+    const smoothPace = movingAvg(rawPace, 11);
+
+    const validPace = smoothPace.filter(v => v !== null);
+    const minP = validPace.length ? Math.min(...validPace) : 4;
+    const maxP = validPace.length ? Math.max(...validPace) : 8;
+
+    const hrVals = hasHr ? trackpoints.map(p => p.hr).filter(v => v !== null) : [];
+    const minHr = hrVals.length ? Math.min(...hrVals) : 0;
+    const maxHr = hrVals.length ? Math.max(...hrVals) : 200;
+
+    function heatColor(val, min, max) {
+        const t = max > min ? Math.max(0, Math.min(1, (val - min) / (max - min))) : 0.5;
+        return `hsl(${Math.round(120 * (1 - t))}, 80%, 40%)`;
+    }
+
+    const paceGroup = L.layerGroup();
+    const hrGroup   = L.layerGroup();
+
+    for (let i = 1; i < trackpoints.length; i++) {
+        const seg = [latlngs[i-1], latlngs[i]];
+        const p = smoothPace[i];
+        const pColor = p !== null ? heatColor(p, minP, maxP) : "#999";
+        const pLabel = p !== null
+            ? `${Math.floor(p)}:${String(Math.round((p % 1) * 60)).padStart(2, "0")} /km`
+            : "–";
+        L.polyline(seg, { color: pColor, weight: 4, opacity: 0.85 })
+            .addTo(paceGroup)
+            .bindTooltip(pLabel, { sticky: true });
+
+        if (hasHr && trackpoints[i].hr !== null) {
+            L.polyline(seg, { color: heatColor(trackpoints[i].hr, minHr, maxHr), weight: 4, opacity: 0.85 })
+                .addTo(hrGroup)
+                .bindTooltip(`${trackpoints[i].hr} bpm`, { sticky: true });
+        }
+    }
+
+    paceGroup.addTo(map);
+
+    if (hasHr) {
+        const ctrl = L.control({ position: "topright" });
+        ctrl.onAdd = () => {
+            const div = L.DomUtil.create("div", "map-mode-ctrl");
+            div.innerHTML = `<button class="map-mode-btn active" data-m="pace">Pace</button><button class="map-mode-btn" data-m="hr">HR</button>`;
+            L.DomEvent.disableClickPropagation(div);
+            div.querySelectorAll("button").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    div.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.m === btn.dataset.m));
+                    if (btn.dataset.m === "pace") { map.removeLayer(hrGroup); paceGroup.addTo(map); }
+                    else                          { map.removeLayer(paceGroup); hrGroup.addTo(map); }
+                });
+            });
+            return div;
+        };
+        ctrl.addTo(map);
+    }
 }
 
 // --- Activity card ---
@@ -533,11 +603,14 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     const errEl = document.getElementById("login-error");
     errEl.classList.add("hidden");
     try {
-        currentUser = await request("POST", "/users/login", {
+        await request("POST", "/users/login", {
             email: document.getElementById("email").value,
             password: document.getElementById("password").value,
         });
-        allActivities = await request("GET", "/activities/");
+        [currentUser, allActivities] = await Promise.all([
+            request("GET", "/users/me"),
+            request("GET", "/activities/"),
+        ]);
         showMain();
     } catch (err) {
         errEl.textContent = err.message;
@@ -558,7 +631,86 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         if (link.dataset.view === "dashboard") loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
         else if (link.dataset.view === "prs") loadPRs();
+        else if (link.dataset.view === "settings") loadSettings();
     });
 });
+
+// --- Settings ---
+function loadSettings() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    const maxHr = currentUser.max_hr ?? "";
+    content.innerHTML = `
+        <h2>Einstellungen</h2>
+        <div class="settings-form">
+            <label class="settings-label">Maximalpuls (bpm)
+                <input type="number" id="max-hr-input" min="100" max="250" value="${maxHr}" placeholder="z.B. 190">
+            </label>
+            <p class="settings-hint">Wird für die HR-Zonenberechnung verwendet (5 Zonen nach % des Maximalpulses).</p>
+            <button id="save-settings-btn" class="btn-primary">Speichern</button>
+            <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
+        </div>
+    `;
+    document.getElementById("save-settings-btn").addEventListener("click", async () => {
+        const val = parseInt(document.getElementById("max-hr-input").value);
+        if (!val || val < 100 || val > 250) return;
+        await request("PATCH", "/users/me", { max_hr: val });
+        currentUser.max_hr = val;
+        const msg = document.getElementById("settings-msg");
+        msg.classList.remove("hidden");
+        setTimeout(() => msg.classList.add("hidden"), 2000);
+    });
+}
+
+// --- HR Zones ---
+const HR_ZONES = [
+    { label: "Z1 Regeneration", max: 0.60, color: "#7bc8f6" },
+    { label: "Z2 Grundlage",    max: 0.70, color: "#4f8ef7" },
+    { label: "Z3 Aerob",        max: 0.80, color: "#93c47d" },
+    { label: "Z4 Schwelle",     max: 0.90, color: "#f7b84f" },
+    { label: "Z5 Maximal",      max: 1.00, color: "#e06666" },
+];
+
+function computeHrZones(trackpoints, maxHr) {
+    const limits = HR_ZONES.map(z => z.max * maxHr);
+    const times  = new Array(5).fill(0);
+    for (let i = 1; i < trackpoints.length; i++) {
+        const hr = trackpoints[i].hr;
+        if (!hr || !trackpoints[i].timestamp || !trackpoints[i-1].timestamp) continue;
+        const dt = (new Date(trackpoints[i].timestamp) - new Date(trackpoints[i-1].timestamp)) / 1000;
+        if (dt <= 0 || dt > 60) continue;
+        const zone = limits.findIndex(lim => hr <= lim);
+        times[zone === -1 ? 4 : zone] += dt;
+    }
+    return times;
+}
+
+function renderHrZones(trackpoints, maxHr) {
+    const times = computeHrZones(trackpoints, maxHr);
+    const total = times.reduce((a, b) => a + b, 0);
+    if (total === 0) return;
+
+    mkChart("chart-hr-zones", {
+        type: "doughnut",
+        data: {
+            labels: HR_ZONES.map((z, i) => `${z.label} (${fmtDuration(Math.round(times[i]))})`),
+            datasets: [{ data: times, backgroundColor: HR_ZONES.map(z => z.color), borderWidth: 1 }],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: "right" },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const pct = total > 0 ? Math.round(ctx.parsed / total * 100) : 0;
+                            return ` ${fmtDuration(Math.round(ctx.parsed))}  (${pct}%)`;
+                        },
+                    },
+                },
+            },
+        },
+    });
+}
 
 init();
