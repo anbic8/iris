@@ -69,7 +69,7 @@ def update_me(data: UserUpdate, db: Session = Depends(get_db), current_user: Use
         current_user.max_hr = data.max_hr
     if data.hr_zones is not None:
         current_user.hr_zones = json.dumps(data.hr_zones)
-if data.birth_year is not None:
+    if data.birth_year is not None:
         current_user.birth_year = data.birth_year
     if data.weight_kg is not None:
         current_user.weight_kg = data.weight_kg
