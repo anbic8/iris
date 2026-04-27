@@ -56,6 +56,8 @@ def me(current_user: User = Depends(get_current_user)):
         "is_admin": current_user.is_admin,
         "max_hr": current_user.max_hr,
         "hr_zones": json.loads(current_user.hr_zones) if current_user.hr_zones else None,
+        "birth_year": current_user.birth_year,
+        "weight_kg": float(current_user.weight_kg) if current_user.weight_kg else None,
     }
 
 
