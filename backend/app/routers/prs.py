@@ -11,6 +11,12 @@ from app.models import Activity, Trackpoint, User
 
 router = APIRouter()
 
+_cache: dict[int, dict] = {}
+
+
+def invalidate_cache(user_id: int) -> None:
+    _cache.pop(user_id, None)
+
 STANDARD_KM = [1.0, 5.0, 10.0, 21.095, 42.195]
 STANDARD_LABELS = ["1 km", "5 km", "10 km", "Halbmarathon", "Marathon"]
 
@@ -65,6 +71,9 @@ def _summary(a: Activity) -> dict:
 
 @router.get("/")
 def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.id in _cache:
+        return _cache[current_user.id]
+
     all_acts = db.query(Activity).filter(Activity.user_id == current_user.id).all()
     running  = [a for a in all_acts if a.sport_type == "running"]
 
@@ -106,7 +115,7 @@ def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_curr
     most_ele   = max((a for a in all_acts if a.elevation_gain_m), key=lambda a: float(a.elevation_gain_m), default=None)
     fast_pace  = min((a for a in running if a.avg_pace), key=lambda a: float(a.avg_pace), default=None)
 
-    return {
+    result = {
         "standard": standard,
         "records": {
             "longest":        _summary(longest)   if longest   else None,
@@ -114,3 +123,5 @@ def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_curr
             "fastest_pace":   _summary(fast_pace) if fast_pace else None,
         },
     }
+    _cache[current_user.id] = result
+    return result

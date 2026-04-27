@@ -1,12 +1,19 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
 from app.models import Activity, Trackpoint, User
+
+VALID_SPORT_TYPES = {"running", "cycling", "hiking", "other"}
+
+
+class ActivityUpdate(BaseModel):
+    sport_type: str
 
 router = APIRouter()
 
@@ -80,6 +87,28 @@ def get_trackpoints(
         }
         for p in points
     ]
+
+
+@router.patch("/{activity_id}")
+def update_activity(
+    activity_id: int,
+    update: ActivityUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if update.sport_type not in VALID_SPORT_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
+    activity = db.query(Activity).filter(
+        Activity.id == activity_id,
+        Activity.user_id == current_user.id,
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
+    activity.sport_type = update.sport_type
+    db.commit()
+    from app.routers.prs import invalidate_cache
+    invalidate_cache(current_user.id)
+    return _activity_to_dict(activity)
 
 
 @router.delete("/{activity_id}", status_code=status.HTTP_204_NO_CONTENT)

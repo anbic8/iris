@@ -365,10 +365,20 @@ async function loadActivity(id) {
         const hasHr   = trackpoints.some(p => p.hr !== null);
         const hasPace = trackpoints.length > 5;
 
+        const sportOptions = [
+            ["running", "🏃 Laufen"],
+            ["cycling", "🚴 Radfahren"],
+            ["hiking",  "🥾 Wandern"],
+            ["other",   "🏅 Sonstige"],
+        ].map(([v, l]) => `<option value="${v}"${v === activity.sport_type ? " selected" : ""}>${l}</option>`).join("");
+
         content.innerHTML = `
             <div class="page-header">
-                <h2>${SPORT_ICONS[activity.sport_type] ?? "🏅"} ${fmtDate(activity.start_time)}</h2>
-                <button class="btn-secondary" id="back-btn">← Zurück</button>
+                <h2>${fmtDate(activity.start_time)}</h2>
+                <div style="display:flex;gap:.5rem;align-items:center;">
+                    <select id="sport-type-select">${sportOptions}</select>
+                    <button class="btn-secondary" id="back-btn">← Zurück</button>
+                </div>
             </div>
             <div class="stats-grid">
                 <div class="stat-card"><div class="stat-value">${(activity.distance_m / 1000).toFixed(2)}</div><div class="stat-label">km</div></div>
@@ -385,6 +395,9 @@ async function loadActivity(id) {
         `;
 
         document.getElementById("back-btn").addEventListener("click", loadActivities);
+        document.getElementById("sport-type-select").addEventListener("change", async (e) => {
+            await request("PATCH", `/activities/${id}`, { sport_type: e.target.value });
+        });
         if (trackpoints.length > 0) {
             renderMap(trackpoints);
             renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
