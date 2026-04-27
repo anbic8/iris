@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     max_hr      INT           DEFAULT NULL,
     birth_year  INT           DEFAULT NULL,
     weight_kg   DECIMAL(5,2)  DEFAULT NULL,
+    hr_zones    TEXT          DEFAULT NULL,
     created_at  TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
 );
 

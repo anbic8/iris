@@ -2,6 +2,8 @@ const API = "/api";
 let currentUser = null;
 let allActivities = [];
 let chartInstances = [];
+let _mapInstance  = null;
+let _hoverMarker  = null;
 
 const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0" };
 const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges" };
@@ -104,6 +106,7 @@ function processTrackpoints(pts) {
         ele:  idx.map(i => pts[i].elevation),
         hr:   idx.map(i => pts[i].hr),
         pace: movingAvg(idx.map(i => rawPace[i]), 15),
+        idx,
     };
 }
 
@@ -402,7 +405,7 @@ async function loadActivity(id) {
         if (trackpoints.length > 0) {
             renderMap(trackpoints);
             renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
-            if (hasHr && currentUser.max_hr) renderHrZones(trackpoints, currentUser.max_hr);
+            if (hasHr && currentUser.max_hr) renderHrZones(trackpoints, currentUser.max_hr, currentUser.hr_zones ?? null);
         }
     } catch (e) {
         content.innerHTML = `<p class="error">${e.message}</p>`;
@@ -410,8 +413,41 @@ async function loadActivity(id) {
 }
 
 function renderActivityCharts(pts, { hasEle, hasHr, hasPace }) {
-    const { dist, ele, hr, pace } = processTrackpoints(pts);
+    const { dist, ele, hr, pace, idx } = processTrackpoints(pts);
     const labels = dist.map(d => d.toFixed(2));
+
+    const syncMap = (dataIdx) => {
+        if (!_mapInstance || dataIdx === undefined) return;
+        const origIdx = idx[dataIdx];
+        if (origIdx === undefined) return;
+        const tp = pts[origIdx];
+        const ll = [tp.lat, tp.lon];
+        if (!_hoverMarker) {
+            _hoverMarker = L.circleMarker(ll, { radius: 7, color: "#1a1a2e", fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(_mapInstance);
+        } else {
+            _hoverMarker.setLatLng(ll);
+        }
+    };
+    const clearSync = () => {
+        if (_hoverMarker && _mapInstance) { _mapInstance.removeLayer(_hoverMarker); _hoverMarker = null; }
+    };
+
+    const vLinePlug = {
+        id: "vLine",
+        afterDraw(chart) {
+            const active = chart.tooltip?._active;
+            if (!active?.length) return;
+            const { ctx, chartArea: { top, bottom } } = chart;
+            const x = chart.getDatasetMeta(0).data[active[0].index]?.x;
+            if (x === undefined) return;
+            ctx.save();
+            ctx.strokeStyle = "rgba(0,0,0,0.22)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+            ctx.restore();
+        },
+    };
 
     const lineBase = (color) => ({
         borderColor: color,
@@ -427,30 +463,41 @@ function renderActivityCharts(pts, { hasEle, hasHr, hasPace }) {
         ticks: { maxTicksLimit: 10 },
     };
 
+    const syncOpts = {
+        onHover: (_, elements) => { if (elements.length) syncMap(elements[0].index); },
+        plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+    };
+
+    const addSync = (id) => {
+        document.getElementById(id)?.addEventListener("mouseleave", clearSync);
+    };
+
     if (hasEle) {
         mkChart("chart-ele", {
             type: "line",
+            plugins: [vLinePlug],
             data: { labels, datasets: [{ label: "Höhe (m)", data: ele, ...lineBase("#6d9eeb") }] },
             options: {
+                ...syncOpts,
                 responsive: true,
-                plugins: { legend: { display: false } },
                 scales: { x: xAxis, y: { title: { display: true, text: "m ü.M." } } },
             },
         });
+        addSync("chart-ele");
     }
 
     if (hasPace) {
         mkChart("chart-pace", {
             type: "line",
+            plugins: [vLinePlug],
             data: { labels, datasets: [{ label: "Pace", data: pace, ...lineBase("#93c47d") }] },
             options: {
+                ...syncOpts,
                 responsive: true,
-                plugins: { legend: { display: false } },
                 scales: {
                     x: xAxis,
                     y: {
                         title: { display: true, text: "min/km" },
-                        reverse: false,
                         ticks: {
                             callback: v => {
                                 const m = Math.floor(v);
@@ -462,22 +509,27 @@ function renderActivityCharts(pts, { hasEle, hasHr, hasPace }) {
                 },
             },
         });
+        addSync("chart-pace");
     }
 
     if (hasHr) {
         mkChart("chart-hr", {
             type: "line",
+            plugins: [vLinePlug],
             data: { labels, datasets: [{ label: "HR (bpm)", data: hr, ...lineBase("#e06666") }] },
             options: {
+                ...syncOpts,
                 responsive: true,
-                plugins: { legend: { display: false } },
                 scales: { x: xAxis, y: { title: { display: true, text: "bpm" } } },
             },
         });
+        addSync("chart-hr");
     }
 }
 
 function renderMap(trackpoints) {
+    _mapInstance = null;
+    _hoverMarker = null;
     const map = L.map("map");
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
@@ -537,6 +589,7 @@ function renderMap(trackpoints) {
     }
 
     paceGroup.addTo(map);
+    _mapInstance = map;
 
     if (hasHr) {
         const ctrl = L.control({ position: "topright" });
@@ -631,31 +684,116 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         if (link.dataset.view === "dashboard") loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
         else if (link.dataset.view === "prs") loadPRs();
+        else if (link.dataset.view === "map")      loadMapOverview();
         else if (link.dataset.view === "settings") loadSettings();
     });
 });
+
+// --- Map overview (all activities) ---
+async function loadMapOverview() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    content.innerHTML = `
+        <div class="page-header">
+            <h2>Karte</h2>
+            <div class="filter-bar">
+                <div class="filter-group" id="map-sport-filter">
+                    <button class="filter-btn active" data-sport="all">Alle</button>
+                    <button class="filter-btn" data-sport="running">🏃 Laufen</button>
+                    <button class="filter-btn" data-sport="cycling">🚴 Radfahren</button>
+                    <button class="filter-btn" data-sport="hiking">🥾 Wandern</button>
+                    <button class="filter-btn" data-sport="other">🏅 Sonstige</button>
+                </div>
+            </div>
+        </div>
+        <div id="map-overview"></div>
+    `;
+    await new Promise(r => setTimeout(r, 0));
+
+    const data = await request("GET", "/activities/overview");
+
+    const map = L.map("map-overview");
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+    }).addTo(map);
+
+    const polylines = data
+        .filter(a => a.pts && a.pts.length > 1)
+        .map(a => {
+            const poly = L.polyline(a.pts, {
+                color: SPORT_COLORS[a.sport_type] ?? "#888",
+                weight: 3,
+                opacity: 0.65,
+            });
+            poly.bindTooltip(
+                `${SPORT_ICONS[a.sport_type] ?? "🏅"} ${fmtDate(a.start_time)} · ${(a.distance_m / 1000).toFixed(2)} km`,
+                { sticky: true }
+            );
+            poly.on("click", () => loadActivity(a.id));
+            poly._sport = a.sport_type;
+            return poly;
+        });
+
+    const group = L.layerGroup(polylines).addTo(map);
+    if (polylines.length) map.fitBounds(L.featureGroup(polylines).getBounds(), { padding: [20, 20] });
+
+    document.querySelectorAll("#map-sport-filter .filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll("#map-sport-filter .filter-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const sport = btn.dataset.sport;
+            group.clearLayers();
+            polylines.filter(p => sport === "all" || p._sport === sport).forEach(p => group.addLayer(p));
+        });
+    });
+}
 
 // --- Settings ---
 function loadSettings() {
     destroyCharts();
     const content = document.getElementById("content");
     const maxHr = currentUser.max_hr ?? "";
+    const cz    = currentUser.hr_zones ?? [];
+    const zv    = i => cz[i] ?? "";
+
     content.innerHTML = `
         <h2>Einstellungen</h2>
         <div class="settings-form">
             <label class="settings-label">Maximalpuls (bpm)
                 <input type="number" id="max-hr-input" min="100" max="250" value="${maxHr}" placeholder="z.B. 190">
             </label>
-            <p class="settings-hint">Wird für die HR-Zonenberechnung verwendet (5 Zonen nach % des Maximalpulses).</p>
+            <p class="settings-hint">Wird für die automatische Zonenberechnung verwendet (5 Zonen nach % des Maximalpulses).</p>
+
+            <div class="settings-section-title">Manuelle Zonengrenzen (bpm) <button id="calc-zones-btn" class="btn-secondary" style="margin-left:.5rem">Aus Maximalpuls berechnen</button></div>
+            <div class="zones-grid">
+                <label class="settings-label">Z1 / Z2 Grenze<input type="number" class="zone-input" data-z="0" min="80" max="240" value="${zv(0)}" placeholder="z.B. 120"></label>
+                <label class="settings-label">Z2 / Z3 Grenze<input type="number" class="zone-input" data-z="1" min="80" max="240" value="${zv(1)}" placeholder="z.B. 140"></label>
+                <label class="settings-label">Z3 / Z4 Grenze<input type="number" class="zone-input" data-z="2" min="80" max="240" value="${zv(2)}" placeholder="z.B. 160"></label>
+                <label class="settings-label">Z4 / Z5 Grenze<input type="number" class="zone-input" data-z="3" min="80" max="240" value="${zv(3)}" placeholder="z.B. 175"></label>
+            </div>
+            <p class="settings-hint">Leer lassen, um die automatische %-Berechnung zu verwenden.</p>
+
             <button id="save-settings-btn" class="btn-primary">Speichern</button>
             <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
     `;
+
+    document.getElementById("calc-zones-btn").addEventListener("click", () => {
+        const mhr = parseInt(document.getElementById("max-hr-input").value);
+        if (!mhr) return;
+        const pcts = [0.60, 0.70, 0.80, 0.90];
+        document.querySelectorAll(".zone-input").forEach((inp, i) => {
+            inp.value = Math.round(mhr * pcts[i]);
+        });
+    });
+
     document.getElementById("save-settings-btn").addEventListener("click", async () => {
-        const val = parseInt(document.getElementById("max-hr-input").value);
-        if (!val || val < 100 || val > 250) return;
-        await request("PATCH", "/users/me", { max_hr: val });
-        currentUser.max_hr = val;
+        const mhr  = parseInt(document.getElementById("max-hr-input").value) || null;
+        const vals = [...document.querySelectorAll(".zone-input")].map(inp => parseInt(inp.value) || null);
+        const zones = vals.every(v => v !== null) ? vals : null;
+        await request("PATCH", "/users/me", { max_hr: mhr, hr_zones: zones });
+        currentUser.max_hr   = mhr;
+        currentUser.hr_zones = zones;
         const msg = document.getElementById("settings-msg");
         msg.classList.remove("hidden");
         setTimeout(() => msg.classList.add("hidden"), 2000);
@@ -671,9 +809,11 @@ const HR_ZONES = [
     { label: "Z5 Maximal",      max: 1.00, color: "#e06666" },
 ];
 
-function computeHrZones(trackpoints, maxHr) {
-    const limits = HR_ZONES.map(z => z.max * maxHr);
-    const times  = new Array(5).fill(0);
+function computeHrZones(trackpoints, maxHr, customZones) {
+    const limits = customZones && customZones.length === 4
+        ? [...customZones, Infinity]
+        : HR_ZONES.map(z => z.max * maxHr);
+    const times = new Array(5).fill(0);
     for (let i = 1; i < trackpoints.length; i++) {
         const hr = trackpoints[i].hr;
         if (!hr || !trackpoints[i].timestamp || !trackpoints[i-1].timestamp) continue;
@@ -685,8 +825,8 @@ function computeHrZones(trackpoints, maxHr) {
     return times;
 }
 
-function renderHrZones(trackpoints, maxHr) {
-    const times = computeHrZones(trackpoints, maxHr);
+function renderHrZones(trackpoints, maxHr, customZones) {
+    const times = computeHrZones(trackpoints, maxHr, customZones);
     const total = times.reduce((a, b) => a + b, 0);
     if (total === 0) return;
 

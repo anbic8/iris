@@ -112,13 +112,15 @@ I.R.I.S. steht für „Improve running insight system“.
 - [x] Zeit in jeder Zone pro Aktivität
 - [x] Donut-Chart zur Zonenverteilung
 
-### 3.3 Höhenprofil interaktiv
-- [ ] Chart.js Höhenprofil mit Hover-Tooltip
-- [ ] Synchronisierung mit Karte (Hover auf Chart → Punkt auf Karte)
+### 3.3 Höhenprofil interaktiv ✅
+- [x] Chart.js Höhenprofil mit Hover-Tooltip
+- [x] Synchronisierung mit Karte (Hover auf Chart → Punkt auf Karte, vertikale Linie im Chart)
+- [x] Sync gilt auch für Pace- und HR-Charts
 
-### 3.4 Kumulierte Karte *(nice-to-have)*
-- [ ] Alle Aktivitäten eines Users auf einer Karte
-- [ ] Filter nach Sportart / Zeitraum
+### 3.4 Kumulierte Karte ✅
+- [x] Alle Aktivitäten eines Users auf einer Karte
+- [x] Filter nach Sportart
+- [x] Klick auf Strecke → Aktivitätsdetail
 
 ---
 
@@ -143,7 +145,8 @@ I.R.I.S. steht für „Improve running insight system“.
 
 ### 4.4 Datenqualität
 - [ ] Ausreißer-Filterung bei Pace (GPS-Fehler)
-- [ ] Manuelle Aktivität bearbeiten (Sportart korrigieren, Notiz hinzufügen)
+- [x] Sportart korrigieren (Dropdown in Einzelaktivität)
+- [ ] Notiz hinzufügen
 
 ### 4.5 Export
 - [ ] Aktivitätsdaten als CSV exportieren

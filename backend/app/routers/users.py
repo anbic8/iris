@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -23,6 +25,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: str | None = None
     max_hr: int | None = None
+    hr_zones: list[int] | None = None
     birth_year: int | None = None
     weight_kg: float | None = None
     password: str | None = None
@@ -51,6 +54,7 @@ def me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "is_admin": current_user.is_admin,
         "max_hr": current_user.max_hr,
+        "hr_zones": json.loads(current_user.hr_zones) if current_user.hr_zones else None,
     }
 
 
@@ -60,6 +64,8 @@ def update_me(data: UserUpdate, db: Session = Depends(get_db), current_user: Use
         current_user.name = data.name
     if data.max_hr is not None:
         current_user.max_hr = data.max_hr
+    if data.hr_zones is not None:
+        current_user.hr_zones = json.dumps(data.hr_zones)
     if data.birth_year is not None:
         current_user.birth_year = data.birth_year
     if data.weight_kg is not None:

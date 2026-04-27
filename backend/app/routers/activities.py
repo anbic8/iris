@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -47,6 +48,42 @@ def list_activities(
         query = query.filter(extract("year", Activity.start_time) == year)
     activities = query.order_by(Activity.start_time.desc()).all()
     return [_activity_to_dict(a) for a in activities]
+
+
+@router.get("/overview")
+def get_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    activities = db.query(Activity).filter(Activity.user_id == current_user.id).all()
+    act_ids = [a.id for a in activities]
+    if not act_ids:
+        return []
+
+    all_tps = (
+        db.query(Trackpoint.activity_id, Trackpoint.lat, Trackpoint.lon)
+        .filter(Trackpoint.activity_id.in_(act_ids))
+        .order_by(Trackpoint.activity_id, Trackpoint.timestamp)
+        .all()
+    )
+    tp_by_act: dict[int, list] = defaultdict(list)
+    for tp in all_tps:
+        tp_by_act[tp.activity_id].append([float(tp.lat), float(tp.lon)])
+
+    result = []
+    for a in activities:
+        pts = tp_by_act[a.id]
+        if not pts:
+            continue
+        step = max(1, len(pts) // 60)
+        result.append({
+            "id": a.id,
+            "sport_type": a.sport_type,
+            "start_time": a.start_time.isoformat() if a.start_time else None,
+            "distance_m": float(a.distance_m) if a.distance_m else 0,
+            "pts": pts[::step],
+        })
+    return result
 
 
 @router.get("/{activity_id}")

@@ -19,6 +19,7 @@ class User(Base):
     max_hr        = Column(Integer, nullable=True)
     birth_year    = Column(Integer, nullable=True)
     weight_kg     = Column(Numeric(5, 2), nullable=True)
+    hr_zones      = Column(Text, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
