@@ -256,7 +256,10 @@ function renderActivities(sport, year, sort) {
     content.innerHTML = `
         <div class="page-header">
             <h2>Aktivitäten (${filtered.length})</h2>
-            <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
+            <div style="display:flex;gap:.5rem;align-items:center;">
+                ${currentUser.nas_sync_path ? `<button id="sync-btn" class="btn-secondary">⟳ NAS Sync</button>` : ""}
+                <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
+            </div>
         </div>
         <div id="upload-section" class="upload-section hidden">
             <form id="upload-form">
@@ -297,6 +300,26 @@ function renderActivities(sport, year, sort) {
     });
     document.getElementById("year-select").addEventListener("change", rerender);
     document.getElementById("sort-select").addEventListener("change", rerender);
+
+    document.getElementById("sync-btn")?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.textContent = "⟳ Sync läuft…";
+        btn.disabled = true;
+        try {
+            const res = await request("POST", "/sync/");
+            btn.textContent = `✓ ${res.detail}`;
+            if (res.transferred > 0) {
+                await new Promise(r => setTimeout(r, 1500));
+                allActivities = await request("GET", "/activities/");
+                renderActivities("all", "all", "date");
+            } else {
+                setTimeout(() => { btn.textContent = "⟳ NAS Sync"; btn.disabled = false; }, 3000);
+            }
+        } catch (err) {
+            btn.textContent = "✗ " + err.message;
+            btn.disabled = false;
+        }
+    });
 
     document.getElementById("upload-btn").addEventListener("click", () => {
         document.getElementById("upload-section").classList.toggle("hidden");
@@ -726,14 +749,19 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
     showLogin();
 });
 
+document.getElementById("nav-toggle").addEventListener("click", () => {
+    document.querySelector(".nav-links").classList.toggle("open");
+});
+
 document.querySelectorAll("nav a[data-view]").forEach(link => {
     link.addEventListener("click", (e) => {
         e.preventDefault();
-        if (link.dataset.view === "dashboard") loadDashboard();
+        document.querySelector(".nav-links").classList.remove("open");
+        if (link.dataset.view === "dashboard")  loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
-        else if (link.dataset.view === "prs") loadPRs();
-        else if (link.dataset.view === "map")      loadMapOverview();
-        else if (link.dataset.view === "settings") loadSettings();
+        else if (link.dataset.view === "prs")        loadPRs();
+        else if (link.dataset.view === "map")        loadMapOverview();
+        else if (link.dataset.view === "settings")   loadSettings();
     });
 });
 
@@ -861,6 +889,18 @@ function loadSettings() {
             <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
 
+        <h3>NAS Sync</h3>
+        <div class="settings-form">
+            <label class="settings-label">NAS-Pfad (Quellordner mit GPX-Dateien)
+                <input type="text" id="nas-path" value="${u.nas_sync_path ?? ""}" placeholder="z.B. /volume1/GPX/Andreas">
+            </label>
+            <p class="settings-hint">Verbindung (Host, User, SSH-Key) wird in <code>.env</code> auf dem Server konfiguriert:<br>
+                <code>NAS_HOST=192.168.178.x</code> &nbsp; <code>NAS_USER=admin</code> &nbsp; <code>NAS_SSH_KEY_PATH=/opt/iris/nas_key</code>
+            </p>
+            <button id="save-nas-btn" class="btn-primary">Pfad speichern</button>
+            <span id="nas-msg" class="settings-msg hidden">✓ Gespeichert</span>
+        </div>
+
         ${adminHtml}
     `;
 
@@ -909,6 +949,13 @@ function loadSettings() {
         currentUser.max_hr = mhr;
         currentUser.hr_zones = zones;
         flash("settings-msg");
+    });
+
+    document.getElementById("save-nas-btn").addEventListener("click", async () => {
+        const path = document.getElementById("nas-path").value.trim();
+        await request("PATCH", "/users/me", { nas_sync_path: path });
+        currentUser.nas_sync_path = path || null;
+        flash("nas-msg");
     });
 
     if (u.is_admin) {

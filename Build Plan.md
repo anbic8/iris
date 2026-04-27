@@ -138,9 +138,8 @@ I.R.I.S. steht für „Improve running insight system“.
 - [x] Sportart manuell wählen als Override
 
 ### 4.3 UI-Polish
-- [ ] Responsives Design (Mobile tauglich)
+- [x] Responsives Design (Mobile tauglich, Hamburger-Menü, Media Queries)
 - [ ] Dark Mode
-- [ ] Ladeanimationen
 - [ ] Fehlermeldungen verständlich (kaputte GPX, doppelter Upload)
 
 ### 4.4 Datenqualität

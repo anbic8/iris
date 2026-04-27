@@ -28,14 +28,17 @@
     <div id="main-page" class="page hidden">
         <nav>
             <span class="nav-brand">I.R.I.S.</span>
-            <a href="#" data-view="dashboard">Dashboard</a>
-            <a href="#" data-view="activities">Aktivitäten</a>
-            <a href="#" data-view="prs">Bestzeiten</a>
-            <a href="#" data-view="map">Karte</a>
-            <a href="#" data-view="settings">⚙</a>
-            <span class="nav-spacer"></span>
-            <span id="nav-user"></span>
-            <button id="logout-btn">Abmelden</button>
+            <button id="nav-toggle" class="nav-toggle" aria-label="Menü">☰</button>
+            <div class="nav-links">
+                <a href="#" data-view="dashboard">Dashboard</a>
+                <a href="#" data-view="activities">Aktivitäten</a>
+                <a href="#" data-view="prs">Bestzeiten</a>
+                <a href="#" data-view="map">Karte</a>
+                <a href="#" data-view="settings">⚙</a>
+                <span class="nav-spacer"></span>
+                <span id="nav-user"></span>
+                <button id="logout-btn">Abmelden</button>
+            </div>
         </nav>
         <main id="content"></main>
     </div>

@@ -29,6 +29,7 @@ class UserUpdate(BaseModel):
     hr_zones: list[int] | None = None
     birth_year: int | None = None
     weight_kg: float | None = None
+    nas_sync_path: str | None = None
     password: str | None = None
 
 
@@ -58,6 +59,7 @@ def me(current_user: User = Depends(get_current_user)):
         "hr_zones": json.loads(current_user.hr_zones) if current_user.hr_zones else None,
         "birth_year": current_user.birth_year,
         "weight_kg": float(current_user.weight_kg) if current_user.weight_kg else None,
+        "nas_sync_path": current_user.nas_sync_path,
     }
 
 
@@ -69,6 +71,8 @@ def update_me(data: UserUpdate, db: Session = Depends(get_db), current_user: Use
         current_user.max_hr = data.max_hr
     if data.hr_zones is not None:
         current_user.hr_zones = json.dumps(data.hr_zones)
+    if data.nas_sync_path is not None:
+        current_user.nas_sync_path = data.nas_sync_path or None
     if data.birth_year is not None:
         current_user.birth_year = data.birth_year
     if data.weight_kg is not None:
