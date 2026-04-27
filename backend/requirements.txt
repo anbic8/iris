@@ -5,7 +5,7 @@ pymysql==1.1.1
 cryptography==43.0.1
 gpxpy==1.6.2
 watchdog==4.0.2
-passlib[bcrypt]==1.7.4
+bcrypt>=4.0.0
 python-multipart==0.0.9
 pydantic[email]==2.9.2
 pydantic-settings==2.5.2
