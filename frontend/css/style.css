@@ -227,6 +227,17 @@ select {
 [data-theme="dark"] .upload-errors { background: #1f1212; border-color: #7f1d1d; }
 .upload-error-item { font-size: .82rem; color: var(--error); }
 
+/* --- Monthly overview table --- */
+.month-table-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+.month-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.month-table th, .month-table td { padding: .6rem .9rem; text-align: left; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.month-table th { background: var(--bg); font-weight: 600; font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.month-table tr:last-child td { border-bottom: none; }
+.sport-breakdown { display: flex; gap: .5rem; flex-wrap: wrap; font-size: .82rem; }
+
+/* --- Season divider --- */
+.season-divider { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid var(--border); }
+
 /* --- CSV export --- */
 .export-bar { display: flex; gap: .5rem; margin-bottom: .75rem; justify-content: flex-end; }
 
@@ -276,6 +287,10 @@ select {
     /* PR table */
     .pr-table th, .pr-table td { padding: .5rem .6rem; font-size: .8rem; }
     .pr-records { grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+
+    /* Month table */
+    .month-table th, .month-table td { padding: .4rem .5rem; font-size: .8rem; }
+    .sport-breakdown { gap: .3rem; }
 
     /* Settings */
     .settings-form { max-width: 100%; }

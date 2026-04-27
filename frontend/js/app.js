@@ -246,6 +246,10 @@ function renderDashboard(year, years) {
         </div>
         <h3>${chartTitle}</h3>
         <div class="chart-box"><canvas id="monthly-chart"></canvas></div>
+        <h3>Monatsübersicht</h3>
+        <div class="month-table-wrap">
+            <table class="month-table" id="month-overview-table"></table>
+        </div>
         <h3>${isAll ? "Letzte Aktivitäten" : "Aktivitäten " + year}</h3>
         <div class="activity-list">${recent.map(activityCard).join("") || "<p>Keine Aktivitäten.</p>"}</div>
     `;
@@ -271,6 +275,36 @@ function renderDashboard(year, years) {
             },
         },
     });
+
+    // --- Monatsübersicht table ---
+    const tbl = document.getElementById("month-overview-table");
+    if (tbl) {
+        const sports = ["running", "cycling", "hiking", "other"];
+        if (isAll) {
+            const sortedYears = [...years].sort((a, b) => a - b);
+            const rows = sortedYears.map(y => {
+                const acts = allActivities.filter(a => getYear(a) === y);
+                if (!acts.length) return null;
+                const s = computeStats(acts);
+                const bySport = sports.filter(sp => acts.some(a => a.sport_type === sp))
+                    .map(sp => `<span style="color:${SPORT_COLORS[sp]}">${SPORT_ICONS[sp]} ${(acts.filter(a=>a.sport_type===sp).reduce((s,a)=>s+a.distance_m/1000,0)).toFixed(0)} km</span>`)
+                    .join(" ");
+                return `<tr><td><strong>${y}</strong></td><td>${s.count}</td><td>${s.km.toFixed(1)}</td><td>${fmtDuration(s.time)}</td><td>${Math.round(s.ele)}</td><td class="sport-breakdown">${bySport}</td></tr>`;
+            }).filter(Boolean);
+            tbl.innerHTML = `<thead><tr><th>Jahr</th><th>Akt.</th><th>km</th><th>Zeit</th><th>Hm</th><th>Sportart</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+        } else {
+            const rows = MONTHS.map((m, i) => {
+                const acts = allActivities.filter(a => getYear(a) === year && getMonth(a) === i);
+                if (!acts.length) return null;
+                const s = computeStats(acts);
+                const bySport = sports.filter(sp => acts.some(a => a.sport_type === sp))
+                    .map(sp => `<span style="color:${SPORT_COLORS[sp]}">${SPORT_ICONS[sp]} ${(acts.filter(a=>a.sport_type===sp).reduce((s,a)=>s+a.distance_m/1000,0)).toFixed(0)} km</span>`)
+                    .join(" ");
+                return `<tr><td><strong>${m}</strong></td><td>${s.count}</td><td>${s.km.toFixed(1)}</td><td>${fmtDuration(s.time)}</td><td>${Math.round(s.ele)}</td><td class="sport-breakdown">${bySport}</td></tr>`;
+            }).filter(Boolean);
+            tbl.innerHTML = `<thead><tr><th>Monat</th><th>Akt.</th><th>km</th><th>Zeit</th><th>Hm</th><th>Sportart</th></tr></thead><tbody>${rows.join("")}</tbody>`;
+        }
+    }
 
     document.querySelectorAll(".year-tab").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -443,7 +477,15 @@ async function loadPRs() {
         return;
     }
 
-    const prRows = data.standard.map(pr => {
+    const prTableHtml = (rows) => `
+        <div class="pr-table-wrap">
+            <table class="pr-table">
+                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Pace</th><th>Datum</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+
+    const prRows = (standard) => standard.map(pr => {
         if (!pr) return `<tr><td>–</td><td colspan="3" class="pr-empty">–</td></tr>`;
         return `<tr class="pr-row" data-id="${pr.activity_id}">
             <td>${pr.label}</td>
@@ -460,24 +502,32 @@ async function loadPRs() {
             <div class="pr-record-sub">${sub}</div>
         </div>`;
 
-    const { longest, most_elevation, fastest_pace } = data.records;
+    const recordCards = (records) => {
+        const { longest, most_elevation, fastest_pace } = records;
+        return `<div class="pr-records">
+            ${longest        ? recordCard("Längste Strecke",   (longest.distance_m/1000).toFixed(2)+" km",          fmtDate(longest.start_time),       longest.id)        : ""}
+            ${most_elevation ? recordCard("Meiste Höhenmeter", Math.round(most_elevation.elevation_gain_m)+" Hm",    fmtDate(most_elevation.start_time), most_elevation.id) : ""}
+            ${fastest_pace   ? recordCard("Schnellste Ø Pace", fmtPace(fastest_pace.avg_pace)+" /km",               fmtDate(fastest_pace.start_time),   fastest_pace.id)   : ""}
+        </div>`;
+    };
+
+    const { season } = data;
+    const seasonHtml = season ? `
+        <div class="season-divider">
+            <h3>🗓 Saisonrekorde ${season.year}</h3>
+            <p class="pr-hint">Nur Aktivitäten aus ${season.year}.</p>
+            ${prTableHtml(prRows(season.standard))}
+            ${recordCards(season.records)}
+        </div>` : "";
 
     content.innerHTML = `
         <h2>Bestzeiten</h2>
-        <h3>🏃 Laufen – Standarddistanzen</h3>
-        <div class="pr-table-wrap">
-            <table class="pr-table">
-                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Pace</th><th>Datum</th></tr></thead>
-                <tbody>${prRows}</tbody>
-            </table>
-            <p class="pr-hint">Schnellstes Segment der jeweiligen Distanz aus allen Aktivitäten (Sliding Window über Trackpoints).</p>
-        </div>
-        <h3>🏆 Rekorde</h3>
-        <div class="pr-records">
-            ${longest       ? recordCard("Längste Strecke",    (longest.distance_m / 1000).toFixed(2) + " km", fmtDate(longest.start_time),       longest.id)       : ""}
-            ${most_elevation? recordCard("Meiste Höhenmeter",  Math.round(most_elevation.elevation_gain_m) + " Hm", fmtDate(most_elevation.start_time), most_elevation.id): ""}
-            ${fastest_pace  ? recordCard("Schnellste Ø Pace",  fmtPace(fastest_pace.avg_pace) + " /km",        fmtDate(fastest_pace.start_time),    fastest_pace.id)  : ""}
-        </div>
+        <h3>🏃 Laufen – Allzeit-Bestzeiten</h3>
+        ${prTableHtml(prRows(data.standard))}
+        <p class="pr-hint" style="margin-bottom:1rem">Schnellstes Segment via Sliding Window über alle Aktivitäten.</p>
+        <h3>🏆 Allzeit-Rekorde</h3>
+        ${recordCards(data.records)}
+        ${seasonHtml}
     `;
 
     document.querySelectorAll(".pr-row, .pr-record-card").forEach(el => {

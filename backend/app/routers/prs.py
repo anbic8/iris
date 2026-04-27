@@ -1,8 +1,10 @@
 import math
 from collections import defaultdict
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import extract
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -187,6 +189,59 @@ def update_prs_for_activity(activity_id: int, user_id: int, db: Session) -> None
     invalidate_cache(user_id)
 
 
+def _compute_season_prs(user_id: int, year: int, db: Session) -> dict:
+    """Calculate PRs limited to a single year. Fresh calculation, not stored in DB."""
+    all_acts = db.query(Activity).filter(
+        Activity.user_id == user_id,
+        extract("year", Activity.start_time) == year,
+    ).all()
+    running = [a for a in all_acts if a.sport_type == "running"]
+
+    standard = [None] * len(STANDARD_KM)
+    if running:
+        run_ids = [a.id for a in running]
+        raw_tp = (
+            db.query(Trackpoint)
+            .filter(Trackpoint.activity_id.in_(run_ids))
+            .order_by(Trackpoint.activity_id, Trackpoint.timestamp)
+            .all()
+        )
+        tp_by_act: dict[int, list] = defaultdict(list)
+        for tp in raw_tp:
+            tp_by_act[tp.activity_id].append(tp)
+
+        for i, (target_km, label) in enumerate(zip(STANDARD_KM, STANDARD_LABELS)):
+            best_entry = None
+            for a in running:
+                if a.distance_m and float(a.distance_m) / 1000 < target_km * 0.95:
+                    continue
+                t = _best_time_s(tp_by_act[a.id], target_km)
+                if t and (best_entry is None or t < best_entry["best_s"]):
+                    best_entry = {
+                        "label": label,
+                        "km": target_km,
+                        "best_s": t,
+                        "pace_min_km": round((t / 60) / target_km, 3),
+                        "activity_id": a.id,
+                        "date": a.start_time.isoformat() if a.start_time else None,
+                    }
+            standard[i] = best_entry
+
+    longest   = max(all_acts, key=lambda a: float(a.distance_m or 0), default=None)
+    most_ele  = max((a for a in all_acts if a.elevation_gain_m), key=lambda a: float(a.elevation_gain_m), default=None)
+    fast_pace = min((a for a in running if a.avg_pace), key=lambda a: float(a.avg_pace), default=None)
+
+    return {
+        "year": year,
+        "standard": standard,
+        "records": {
+            "longest":        _summary(longest)    if longest    else None,
+            "most_elevation": _summary(most_ele)   if most_ele   else None,
+            "fastest_pace":   _summary(fast_pace)  if fast_pace  else None,
+        },
+    }
+
+
 @router.get("/")
 def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.id in _cache:
@@ -202,6 +257,7 @@ def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_curr
     result = {
         "standard": _load_standard_prs(current_user.id, db),
         "records":  _compute_records(current_user.id, db),
+        "season":   _compute_season_prs(current_user.id, datetime.utcnow().year, db),
     }
     _cache[current_user.id] = result
     return result
