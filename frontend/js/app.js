@@ -1,7 +1,7 @@
 const API = "/api";
 let currentUser = null;
 let allActivities = [];
-let chartInstance = null;
+let chartInstances = [];
 
 const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0" };
 const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges" };
@@ -46,8 +46,65 @@ function delta(curr, prev, decimals = 0) {
     return `<span class="${cls}">${sign}${val}</span>`;
 }
 
-function destroyChart() {
-    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+function destroyCharts() {
+    chartInstances.forEach(c => c.destroy());
+    chartInstances = [];
+}
+
+function mkChart(id, config) {
+    const ctx = document.getElementById(id);
+    if (!ctx) return;
+    chartInstances.push(new Chart(ctx.getContext("2d"), config));
+}
+
+// --- Geo / trackpoint math ---
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function movingAvg(arr, window) {
+    const half = Math.floor(window / 2);
+    return arr.map((_, i) => {
+        const slice = arr.slice(Math.max(0, i - half), Math.min(arr.length, i + half + 1))
+                        .filter(v => v !== null && !isNaN(v));
+        return slice.length ? slice.reduce((a, b) => a + b) / slice.length : null;
+    });
+}
+
+function downsample(arr, max) {
+    if (arr.length <= max) return arr;
+    const step = arr.length / max;
+    return Array.from({ length: max }, (_, i) => arr[Math.round(i * step)]);
+}
+
+function processTrackpoints(pts) {
+    const cumDist = [0];
+    for (let i = 1; i < pts.length; i++) {
+        cumDist.push(cumDist[i - 1] + haversineKm(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon));
+    }
+
+    const rawPace = [null];
+    for (let i = 1; i < pts.length; i++) {
+        const dKm  = cumDist[i] - cumDist[i - 1];
+        const dSec = (new Date(pts[i].timestamp) - new Date(pts[i - 1].timestamp)) / 1000;
+        if (dKm < 0.001 || dSec <= 0) { rawPace.push(null); continue; }
+        const p = (dSec / 60) / dKm;
+        rawPace.push(p >= 1.5 && p <= 30 ? p : null);
+    }
+
+    const MAX = 600;
+    const idx  = downsample([...Array(pts.length).keys()], MAX);
+    return {
+        dist: idx.map(i => cumDist[i]),
+        ele:  idx.map(i => pts[i].elevation),
+        hr:   idx.map(i => pts[i].hr),
+        pace: movingAvg(idx.map(i => rawPace[i]), 15),
+    };
 }
 
 // --- Auth ---
@@ -80,7 +137,7 @@ function loadDashboard() {
 }
 
 function renderDashboard(year, years) {
-    destroyChart();
+    destroyCharts();
     const content = document.getElementById("content");
 
     const curr = computeStats(allActivities.filter(a => getYear(a) === year));
@@ -132,7 +189,7 @@ function renderDashboard(year, years) {
     `;
 
     const activeSports = sports.filter(s => monthlyBySport[s].some(v => v > 0));
-    chartInstance = new Chart(document.getElementById("monthly-chart").getContext("2d"), {
+    mkChart("monthly-chart", {
         type: "bar",
         data: {
             labels: MONTHS,
@@ -167,7 +224,7 @@ function loadActivities() {
 }
 
 function renderActivities(sport, year, sort) {
-    destroyChart();
+    destroyCharts();
     const content = document.getElementById("content");
     const years = getYears();
 
@@ -205,15 +262,11 @@ function renderActivities(sport, year, sort) {
         <div class="activity-list">${filtered.map(activityCard).join("") || "<p>Keine Aktivitäten gefunden.</p>"}</div>
     `;
 
-    const rerender = () => {
-        const y = document.getElementById("year-select").value;
-        const s = document.getElementById("sort-select").value;
-        renderActivities(
-            document.querySelector(".filter-btn.active")?.dataset.sport ?? "all",
-            y === "all" ? "all" : parseInt(y),
-            s
-        );
-    };
+    const rerender = () => renderActivities(
+        document.querySelector(".filter-btn.active")?.dataset.sport ?? "all",
+        document.getElementById("year-select").value,
+        document.getElementById("sort-select").value
+    );
 
     document.querySelectorAll(".filter-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -231,7 +284,7 @@ function renderActivities(sport, year, sort) {
 
 // --- Single activity ---
 async function loadActivity(id) {
-    destroyChart();
+    destroyCharts();
     const content = document.getElementById("content");
     content.innerHTML = "<p>Lade…</p>";
     try {
@@ -239,6 +292,11 @@ async function loadActivity(id) {
             request("GET", `/activities/${id}`),
             request("GET", `/activities/${id}/trackpoints`),
         ]);
+
+        const hasEle  = trackpoints.some(p => p.elevation !== null);
+        const hasHr   = trackpoints.some(p => p.hr !== null);
+        const hasPace = trackpoints.length > 5;
+
         content.innerHTML = `
             <div class="page-header">
                 <h2>${SPORT_ICONS[activity.sport_type] ?? "🏅"} ${fmtDate(activity.start_time)}</h2>
@@ -248,16 +306,91 @@ async function loadActivity(id) {
                 <div class="stat-card"><div class="stat-value">${(activity.distance_m / 1000).toFixed(2)}</div><div class="stat-label">km</div></div>
                 <div class="stat-card"><div class="stat-value">${fmtDuration(activity.duration_s)}</div><div class="stat-label">Zeit</div></div>
                 ${activity.avg_pace ? `<div class="stat-card"><div class="stat-value">${fmtPace(activity.avg_pace)}</div><div class="stat-label">Ø Pace /km</div></div>` : ""}
-                ${activity.avg_hr ? `<div class="stat-card"><div class="stat-value">${activity.avg_hr}</div><div class="stat-label">Ø HR bpm</div></div>` : ""}
-                ${activity.max_hr ? `<div class="stat-card"><div class="stat-value">${activity.max_hr}</div><div class="stat-label">Max HR bpm</div></div>` : ""}
+                ${activity.avg_hr  ? `<div class="stat-card"><div class="stat-value">${activity.avg_hr}</div><div class="stat-label">Ø HR bpm</div></div>` : ""}
+                ${activity.max_hr  ? `<div class="stat-card"><div class="stat-value">${activity.max_hr}</div><div class="stat-label">Max HR bpm</div></div>` : ""}
                 ${activity.elevation_gain_m ? `<div class="stat-card"><div class="stat-value">${Math.round(activity.elevation_gain_m)}</div><div class="stat-label">Höhenmeter</div></div>` : ""}
             </div>
             <div id="map"></div>
+            ${hasEle  ? '<h3>Höhenprofil</h3><div class="chart-box"><canvas id="chart-ele"></canvas></div>'   : ""}
+            ${hasPace ? '<h3>Pace</h3><div class="chart-box"><canvas id="chart-pace"></canvas></div>'         : ""}
+            ${hasHr   ? '<h3>Herzfrequenz</h3><div class="chart-box"><canvas id="chart-hr"></canvas></div>'   : ""}
         `;
+
         document.getElementById("back-btn").addEventListener("click", loadActivities);
-        if (trackpoints.length > 0) renderMap(trackpoints);
+        if (trackpoints.length > 0) {
+            renderMap(trackpoints);
+            renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
+        }
     } catch (e) {
         content.innerHTML = `<p class="error">${e.message}</p>`;
+    }
+}
+
+function renderActivityCharts(pts, { hasEle, hasHr, hasPace }) {
+    const { dist, ele, hr, pace } = processTrackpoints(pts);
+    const labels = dist.map(d => d.toFixed(2));
+
+    const lineBase = (color) => ({
+        borderColor: color,
+        backgroundColor: color + "22",
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: true,
+    });
+
+    const xAxis = {
+        title: { display: true, text: "km" },
+        ticks: { maxTicksLimit: 10 },
+    };
+
+    if (hasEle) {
+        mkChart("chart-ele", {
+            type: "line",
+            data: { labels, datasets: [{ label: "Höhe (m)", data: ele, ...lineBase("#6d9eeb") }] },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { x: xAxis, y: { title: { display: true, text: "m ü.M." } } },
+            },
+        });
+    }
+
+    if (hasPace) {
+        mkChart("chart-pace", {
+            type: "line",
+            data: { labels, datasets: [{ label: "Pace", data: pace, ...lineBase("#93c47d") }] },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: xAxis,
+                    y: {
+                        title: { display: true, text: "min/km" },
+                        reverse: false,
+                        ticks: {
+                            callback: v => {
+                                const m = Math.floor(v);
+                                const s = Math.round((v - m) * 60);
+                                return `${m}:${String(s).padStart(2, "0")}`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
+    if (hasHr) {
+        mkChart("chart-hr", {
+            type: "line",
+            data: { labels, datasets: [{ label: "HR (bpm)", data: hr, ...lineBase("#e06666") }] },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: { x: xAxis, y: { title: { display: true, text: "bpm" } } },
+            },
+        });
     }
 }
 
