@@ -282,6 +282,88 @@ function renderActivities(sport, year, sort) {
     });
 }
 
+// --- Personal Records ---
+const STD_DISTANCES = [
+    { label: "1 km",          km: 1,      tol: 0.25 },
+    { label: "5 km",          km: 5,      tol: 0.5  },
+    { label: "10 km",         km: 10,     tol: 1.0  },
+    { label: "Halbmarathon",  km: 21.095, tol: 1.5  },
+    { label: "Marathon",      km: 42.195, tol: 2.0  },
+];
+
+function loadPRs() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    const running = allActivities.filter(a => a.sport_type === "running" && a.avg_pace);
+
+    // Standard distance PRs
+    const prRows = STD_DISTANCES.map(({ label, km, tol }) => {
+        const candidates = running.filter(a => {
+            const d = a.distance_m / 1000;
+            return d >= km - tol && d <= km + tol;
+        }).sort((a, b) => a.avg_pace - b.avg_pace);
+
+        if (!candidates.length) {
+            return `<tr><td>${label}</td><td colspan="3" class="pr-empty">–</td></tr>`;
+        }
+        const best = candidates[0];
+        const time = estimatedTime(best.avg_pace, km);
+        return `<tr class="pr-row" data-id="${best.id}">
+            <td>${label}</td>
+            <td><strong>${time}</strong></td>
+            <td>${fmtPace(best.avg_pace)} /km</td>
+            <td>${fmtDate(best.start_time)}</td>
+        </tr>`;
+    }).join("");
+
+    // Records
+    const byDist = [...allActivities].sort((a, b) => b.distance_m - a.distance_m);
+    const byEle  = [...allActivities].filter(a => a.elevation_gain_m).sort((a, b) => b.elevation_gain_m - a.elevation_gain_m);
+    const byPace = [...running].sort((a, b) => a.avg_pace - b.avg_pace);
+
+    const recordCard = (label, value, sub, id) =>
+        `<div class="pr-record-card" data-id="${id}">
+            <div class="pr-record-value">${value}</div>
+            <div class="pr-record-label">${label}</div>
+            <div class="pr-record-sub">${sub}</div>
+        </div>`;
+
+    content.innerHTML = `
+        <h2>Bestzeiten</h2>
+
+        <h3>🏃 Laufen – Standarddistanzen</h3>
+        <div class="pr-table-wrap">
+            <table class="pr-table">
+                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Ø Pace</th><th>Datum</th></tr></thead>
+                <tbody>${prRows}</tbody>
+            </table>
+            <p class="pr-hint">Zeigt die schnellste Aktivität innerhalb ±Toleranz der Standarddistanz.</p>
+        </div>
+
+        <h3>🏆 Rekorde</h3>
+        <div class="pr-records">
+            ${byDist[0]  ? recordCard("Längste Strecke",      (byDist[0].distance_m / 1000).toFixed(2) + " km", fmtDate(byDist[0].start_time),  byDist[0].id)  : ""}
+            ${byEle[0]   ? recordCard("Meiste Höhenmeter",    Math.round(byEle[0].elevation_gain_m) + " Hm",    fmtDate(byEle[0].start_time),    byEle[0].id)   : ""}
+            ${byPace[0]  ? recordCard("Schnellste Ø Pace",    fmtPace(byPace[0].avg_pace) + " /km",            fmtDate(byPace[0].start_time),   byPace[0].id)  : ""}
+        </div>
+    `;
+
+    document.querySelectorAll(".pr-row, .pr-record-card").forEach(el => {
+        const id = parseInt(el.dataset.id);
+        if (id) el.addEventListener("click", () => loadActivity(id));
+    });
+}
+
+function estimatedTime(paceMinPerKm, distKm) {
+    const total = paceMinPerKm * distKm;
+    const h = Math.floor(total / 60);
+    const m = Math.floor(total % 60);
+    const s = Math.round((total * 60) % 60);
+    return h > 0
+        ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        : `${m}:${String(s).padStart(2, "0")}`;
+}
+
 // --- Single activity ---
 async function loadActivity(id) {
     destroyCharts();
@@ -476,6 +558,7 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         e.preventDefault();
         if (link.dataset.view === "dashboard") loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
+        else if (link.dataset.view === "prs") loadPRs();
     });
 });
 

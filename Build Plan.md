@@ -43,15 +43,15 @@ I.R.I.S. steht für „Improve running insight system“.
 - [x] Pace/Geschwindigkeit Berechnung
 - [x] Schreiben in DB (activities + trackpoints)
 - [x] Duplikat-Erkennung (gleiche Startzeit + Distanz → nicht zweimal importieren)
-- [ ] **Test: echte GPX-Datei einlesen und Ergebnis prüfen**
+- [x] **Test: echte GPX-Datei einlesen und Ergebnis prüfen** ✅
 
-### 1.4 Ordner-WebDAV-Watcher
+### 1.4 Ordner-WebDAV-Watcher ✅
 - [x] Jeder User hat einen eigenen upload/processed Ordner
 - [x] Separater Python-Service überwacht Upload-Ordner (`watchdog`)
 - [x] Neue `.gpx`-Datei → automatisch Parser aufrufen
 - [x] Verarbeitete Dateien in `/processed`-Ordner verschieben
 - [x] Fehler-Logging bei kaputten GPX-Dateien
-- [ ] **Test: GPX-Datei in inbox ablegen → automatisch verarbeitet**
+- [x] **Test: GPX-Datei in inbox ablegen → automatisch verarbeitet** ✅
 
 ### 1.5 User-Authentifizierung ✅
 - [x] Login-Seite (Email + Passwort)
@@ -62,36 +62,36 @@ I.R.I.S. steht für „Improve running insight system“.
 
 ---
 
-## Phase 2 – Statistiken & Dashboard
+## Phase 2 – Statistiken & Dashboard ✅
 > **Grobziel:** Alle wichtigen Kennzahlen berechnet und übersichtlich dargestellt.
 > **Meilenstein:** Dashboard zeigt Jahres-km, Bestzeiten, Detailseite mit Charts.
 
-### 2.1 Aktivitätsliste
-- [ ] Alle Aktivitäten chronologisch
-- [ ] Filter nach Sportart (Laufen / Radfahren / Wandern)
-- [ ] Filter nach Zeitraum
-- [ ] Sortierung (Datum, Distanz, Pace)
-- [ ] Kurzübersicht pro Eintrag (Datum, Distanz, Zeit, Pace, HR)
+### 2.1 Aktivitätsliste ✅
+- [x] Alle Aktivitäten chronologisch
+- [x] Filter nach Sportart (Laufen / Radfahren / Wandern)
+- [x] Filter nach Zeitraum
+- [x] Sortierung (Datum, Distanz, Pace)
+- [x] Kurzübersicht pro Eintrag (Datum, Distanz, Zeit, Pace, HR)
 
-### 2.2 Jahresstatistiken
-- [ ] Gesamt-km pro Jahr, aufgeteilt nach Sportart
-- [ ] Balkendiagramm: km pro Monat (Chart.js)
-- [ ] Vergleich Vorjahr
-- [ ] Anzahl Aktivitäten, Gesamthöhenmeter, Gesamtzeit
+### 2.2 Jahresstatistiken ✅
+- [x] Gesamt-km pro Jahr, aufgeteilt nach Sportart
+- [x] Balkendiagramm: km pro Monat (Chart.js)
+- [x] Vergleich Vorjahr
+- [x] Anzahl Aktivitäten, Gesamthöhenmeter, Gesamtzeit
 
-### 2.3 Bestzeiten / Personal Records
-- [ ] Bestzeit über Standarddistanzen: 1 km, 5 km, 10 km, Halbmarathon, Marathon
-- [ ] Schnellste Durchschnitts-Pace pro Aktivität
-- [ ] Längste Aktivität (Distanz / Zeit)
-- [ ] Höchste Höhenmeter
-- [ ] PR wird automatisch markiert wenn neue Aktivität einen Rekord bricht
+### 2.3 Bestzeiten / Personal Records ✅
+- [x] Bestzeit über Standarddistanzen: 1 km, 5 km, 10 km, Halbmarathon, Marathon
+- [x] Schnellste Durchschnitts-Pace pro Aktivität
+- [x] Längste Aktivität (Distanz / Zeit)
+- [x] Höchste Höhenmeter
+- [ ] PR wird automatisch markiert wenn neue Aktivität einen Rekord bricht *(Phase 4)*
 
-### 2.4 Einzelaktivität-Detailseite
-- [ ] Alle Kennzahlen im Überblick
-- [ ] Pace-Kurve über Zeit (Chart.js)
-- [ ] HR-Kurve über Zeit
-- [ ] Höhenprofil
-- [ ] HR-Zonen-Verteilung (wenn HR vorhanden)
+### 2.4 Einzelaktivität-Detailseite ✅
+- [x] Alle Kennzahlen im Überblick
+- [x] Pace-Kurve über Zeit (Chart.js)
+- [x] HR-Kurve über Zeit
+- [x] Höhenprofil
+- [ ] HR-Zonen-Verteilung (wenn HR vorhanden) *(Phase 3.2)*
 
 ---
 

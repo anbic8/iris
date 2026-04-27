@@ -116,6 +116,23 @@ select {
 .delta-up   { color: #2e7d32; font-size: .75rem; font-weight: 600; }
 .delta-down { color: #c62828; font-size: .75rem; font-weight: 600; }
 
+/* --- PR / Bestzeiten --- */
+.pr-table-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+.pr-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: var(--radius); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.pr-table th, .pr-table td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); font-size: .9rem; }
+.pr-table th { background: var(--bg); font-weight: 600; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.pr-table tr:last-child td { border-bottom: none; }
+.pr-row { cursor: pointer; transition: background .1s; }
+.pr-row:hover { background: var(--bg); }
+.pr-empty { color: var(--muted); }
+.pr-hint { font-size: .75rem; color: var(--muted); margin-top: .5rem; }
+.pr-records { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.pr-record-card { background: var(--surface); border-radius: var(--radius); padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); text-align: center; cursor: pointer; transition: box-shadow .15s; }
+.pr-record-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.13); }
+.pr-record-value { font-size: 1.6rem; font-weight: 700; color: var(--primary); }
+.pr-record-label { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
+.pr-record-sub   { font-size: .75rem; color: var(--muted); margin-top: .15rem; }
+
 /* --- Secondary button --- */
 .btn-secondary {
     background: transparent; border: 1px solid var(--border); color: var(--muted);
