@@ -20,7 +20,6 @@ class User(Base):
     birth_year    = Column(Integer, nullable=True)
     weight_kg     = Column(Numeric(5, 2), nullable=True)
     hr_zones      = Column(Text, nullable=True)
-    nas_sync_path = Column(String(500), nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 

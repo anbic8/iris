@@ -256,14 +256,11 @@ function renderActivities(sport, year, sort) {
     content.innerHTML = `
         <div class="page-header">
             <h2>Aktivitäten (${filtered.length})</h2>
-            <div style="display:flex;gap:.5rem;align-items:center;">
-                ${currentUser.nas_sync_path ? `<button id="sync-btn" class="btn-secondary">⟳ NAS Sync</button>` : ""}
-                <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
-            </div>
+            <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
         </div>
         <div id="upload-section" class="upload-section hidden">
             <form id="upload-form">
-                <input type="file" id="gpx-file" accept=".gpx" required>
+                <input type="file" id="gpx-file" accept=".gpx" multiple required>
                 <select id="upload-sport">
                     <option value="">Sportart auto-erkennen</option>
                     <option value="running">🏃 Laufen</option>
@@ -301,53 +298,49 @@ function renderActivities(sport, year, sort) {
     document.getElementById("year-select").addEventListener("change", rerender);
     document.getElementById("sort-select").addEventListener("change", rerender);
 
-    document.getElementById("sync-btn")?.addEventListener("click", async (e) => {
-        const btn = e.currentTarget;
-        btn.textContent = "⟳ Sync läuft…";
-        btn.disabled = true;
-        try {
-            const res = await request("POST", "/sync/");
-            btn.textContent = `✓ ${res.detail}`;
-            if (res.transferred > 0) {
-                await new Promise(r => setTimeout(r, 1500));
-                allActivities = await request("GET", "/activities/");
-                renderActivities("all", "all", "date");
-            } else {
-                setTimeout(() => { btn.textContent = "⟳ NAS Sync"; btn.disabled = false; }, 3000);
-            }
-        } catch (err) {
-            btn.textContent = "✗ " + err.message;
-            btn.disabled = false;
-        }
-    });
-
     document.getElementById("upload-btn").addEventListener("click", () => {
         document.getElementById("upload-section").classList.toggle("hidden");
     });
     document.getElementById("upload-form").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const file = document.getElementById("gpx-file").files[0];
-        if (!file) return;
+        const files = [...document.getElementById("gpx-file").files];
+        if (!files.length) return;
         const sport = document.getElementById("upload-sport").value;
-        const fd = new FormData();
-        fd.append("file", file);
-        if (sport) fd.append("sport_type", sport);
-        const msg = document.getElementById("upload-msg");
+        const msg   = document.getElementById("upload-msg");
         msg.style.color = "";
-        msg.textContent = "Lade hoch…";
-        try {
-            const res = await fetch(API + "/activities/upload", { method: "POST", body: fd });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.detail ?? "Upload fehlgeschlagen");
+
+        let ok = 0, fail = 0;
+        const errors = [];
+
+        for (const file of files) {
+            msg.textContent = `${ok + fail + 1} / ${files.length} wird hochgeladen…`;
+            const fd = new FormData();
+            fd.append("file", file);
+            if (sport) fd.append("sport_type", sport);
+            try {
+                const res = await fetch(API + "/activities/upload", { method: "POST", body: fd });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    errors.push(`${file.name}: ${err.detail ?? "Fehler"}`);
+                    fail++;
+                } else {
+                    allActivities.unshift(await res.json());
+                    ok++;
+                }
+            } catch {
+                errors.push(`${file.name}: Netzwerkfehler`);
+                fail++;
             }
-            const act = await res.json();
-            allActivities.unshift(act);
+        }
+
+        if (fail === 0) {
             document.getElementById("upload-section").classList.add("hidden");
             renderActivities("all", "all", "date");
-        } catch (err) {
-            msg.textContent = err.message;
-            msg.style.color = "var(--error)";
+        } else {
+            msg.style.color = fail === files.length ? "var(--error)" : "";
+            msg.textContent = `${ok} hochgeladen, ${fail} fehlgeschlagen`;
+            msg.title = errors.join("\n");
+            if (ok > 0) renderActivities("all", "all", "date");
         }
     });
 
@@ -889,18 +882,6 @@ function loadSettings() {
             <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
 
-        <h3>NAS Sync</h3>
-        <div class="settings-form">
-            <label class="settings-label">NAS-Pfad (Quellordner mit GPX-Dateien)
-                <input type="text" id="nas-path" value="${u.nas_sync_path ?? ""}" placeholder="z.B. /volume1/GPX/Andreas">
-            </label>
-            <p class="settings-hint">Verbindung (Host, User, SSH-Key) wird in <code>.env</code> auf dem Server konfiguriert:<br>
-                <code>NAS_HOST=192.168.178.x</code> &nbsp; <code>NAS_USER=admin</code> &nbsp; <code>NAS_SSH_KEY_PATH=/opt/iris/nas_key</code>
-            </p>
-            <button id="save-nas-btn" class="btn-primary">Pfad speichern</button>
-            <span id="nas-msg" class="settings-msg hidden">✓ Gespeichert</span>
-        </div>
-
         ${adminHtml}
     `;
 
@@ -949,13 +930,6 @@ function loadSettings() {
         currentUser.max_hr = mhr;
         currentUser.hr_zones = zones;
         flash("settings-msg");
-    });
-
-    document.getElementById("save-nas-btn").addEventListener("click", async () => {
-        const path = document.getElementById("nas-path").value.trim();
-        await request("PATCH", "/users/me", { nas_sync_path: path });
-        currentUser.nas_sync_path = path || null;
-        flash("nas-msg");
     });
 
     if (u.is_admin) {

@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS users (
     birth_year  INT           DEFAULT NULL,
     weight_kg   DECIMAL(5,2)  DEFAULT NULL,
     hr_zones      TEXT          DEFAULT NULL,
-    nas_sync_path VARCHAR(500)  DEFAULT NULL,
     created_at    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
 );
 

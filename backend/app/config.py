@@ -8,9 +8,6 @@ class Settings(BaseSettings):
     DB_USER: str
     DB_PASSWORD: str
     SECRET_KEY: str
-    NAS_HOST: str = ""
-    NAS_USER: str = "admin"
-    NAS_SSH_KEY_PATH: str = "/opt/iris/nas_key"
 
     @property
     def DATABASE_URL(self) -> str:
