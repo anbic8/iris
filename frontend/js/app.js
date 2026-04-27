@@ -254,7 +254,24 @@ function renderActivities(sport, year, sort) {
     ).join("");
 
     content.innerHTML = `
-        <div class="page-header"><h2>Aktivitäten (${filtered.length})</h2></div>
+        <div class="page-header">
+            <h2>Aktivitäten (${filtered.length})</h2>
+            <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
+        </div>
+        <div id="upload-section" class="upload-section hidden">
+            <form id="upload-form">
+                <input type="file" id="gpx-file" accept=".gpx" required>
+                <select id="upload-sport">
+                    <option value="">Sportart auto-erkennen</option>
+                    <option value="running">🏃 Laufen</option>
+                    <option value="cycling">🚴 Radfahren</option>
+                    <option value="hiking">🥾 Wandern</option>
+                    <option value="other">🏅 Sonstige</option>
+                </select>
+                <button type="submit" class="btn-primary">Hochladen</button>
+                <span id="upload-msg" class="upload-msg"></span>
+            </form>
+        </div>
         <div class="filter-bar">
             <div class="filter-group">${sportBtns}</div>
             <div class="filter-group">
@@ -280,6 +297,37 @@ function renderActivities(sport, year, sort) {
     });
     document.getElementById("year-select").addEventListener("change", rerender);
     document.getElementById("sort-select").addEventListener("change", rerender);
+
+    document.getElementById("upload-btn").addEventListener("click", () => {
+        document.getElementById("upload-section").classList.toggle("hidden");
+    });
+    document.getElementById("upload-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const file = document.getElementById("gpx-file").files[0];
+        if (!file) return;
+        const sport = document.getElementById("upload-sport").value;
+        const fd = new FormData();
+        fd.append("file", file);
+        if (sport) fd.append("sport_type", sport);
+        const msg = document.getElementById("upload-msg");
+        msg.style.color = "";
+        msg.textContent = "Lade hoch…";
+        try {
+            const res = await fetch(API + "/activities/upload", { method: "POST", body: fd });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail ?? "Upload fehlgeschlagen");
+            }
+            const act = await res.json();
+            allActivities.unshift(act);
+            document.getElementById("upload-section").classList.add("hidden");
+            renderActivities("all", "all", "date");
+        } catch (err) {
+            msg.textContent = err.message;
+            msg.style.color = "var(--error)";
+        }
+    });
+
     document.querySelectorAll(".activity-card").forEach(el => {
         el.addEventListener("click", () => loadActivity(parseInt(el.dataset.id)));
     });
@@ -752,38 +800,104 @@ async function loadMapOverview() {
 function loadSettings() {
     destroyCharts();
     const content = document.getElementById("content");
-    const maxHr = currentUser.max_hr ?? "";
-    const cz    = currentUser.hr_zones ?? [];
-    const zv    = i => cz[i] ?? "";
+    const u  = currentUser;
+    const cz = u.hr_zones ?? [];
+    const zv = i => cz[i] ?? "";
+
+    const adminHtml = u.is_admin ? `
+        <h3>Benutzerverwaltung</h3>
+        <div id="user-list"><p class="muted">Lade…</p></div>
+        <div class="settings-form" style="margin-top:1rem">
+            <div class="settings-section-title">Neuen Benutzer anlegen</div>
+            <div class="zones-grid">
+                <label class="settings-label">Name<input type="text" id="new-name" placeholder="Max Mustermann"></label>
+                <label class="settings-label">E-Mail<input type="email" id="new-email" placeholder="max@example.com"></label>
+                <label class="settings-label">Passwort<input type="password" id="new-password"></label>
+            </div>
+            <label class="settings-label" style="flex-direction:row;align-items:center;gap:.5rem;font-weight:400">
+                <input type="checkbox" id="new-is-admin"> Admin-Rechte
+            </label>
+            <button id="create-user-btn" class="btn-primary">Anlegen</button>
+            <span id="create-user-msg" class="settings-msg hidden"></span>
+        </div>` : "";
 
     content.innerHTML = `
         <h2>Einstellungen</h2>
+
+        <h3>Profil</h3>
+        <div class="settings-form">
+            <label class="settings-label">Name<input type="text" id="profile-name" value="${u.name ?? ""}"></label>
+            <div class="zones-grid">
+                <label class="settings-label">Geburtsjahr<input type="number" id="profile-birth" min="1900" max="2025" value="${u.birth_year ?? ""}" placeholder="z.B. 1990"></label>
+                <label class="settings-label">Gewicht (kg)<input type="number" id="profile-weight" min="30" max="250" step="0.1" value="${u.weight_kg ?? ""}" placeholder="z.B. 70"></label>
+            </div>
+            <button id="save-profile-btn" class="btn-primary">Profil speichern</button>
+            <span id="profile-msg" class="settings-msg hidden">✓ Gespeichert</span>
+        </div>
+
+        <h3>Passwort ändern</h3>
+        <div class="settings-form">
+            <label class="settings-label">Neues Passwort<input type="password" id="new-pw" placeholder="Mindestens 4 Zeichen"></label>
+            <button id="save-pw-btn" class="btn-primary">Passwort ändern</button>
+            <span id="pw-msg" class="settings-msg hidden">✓ Geändert</span>
+        </div>
+
+        <h3>Maximalpuls &amp; HR-Zonen</h3>
         <div class="settings-form">
             <label class="settings-label">Maximalpuls (bpm)
-                <input type="number" id="max-hr-input" min="100" max="250" value="${maxHr}" placeholder="z.B. 190">
+                <input type="number" id="max-hr-input" min="100" max="250" value="${u.max_hr ?? ""}" placeholder="z.B. 190">
             </label>
-            <p class="settings-hint">Wird für die automatische Zonenberechnung verwendet (5 Zonen nach % des Maximalpulses).</p>
-
-            <div class="settings-section-title">Manuelle Zonengrenzen (bpm) <button id="calc-zones-btn" class="btn-secondary" style="margin-left:.5rem">Aus Maximalpuls berechnen</button></div>
-            <div class="zones-grid">
-                <label class="settings-label">Z1 / Z2 Grenze<input type="number" class="zone-input" data-z="0" min="80" max="240" value="${zv(0)}" placeholder="z.B. 120"></label>
-                <label class="settings-label">Z2 / Z3 Grenze<input type="number" class="zone-input" data-z="1" min="80" max="240" value="${zv(1)}" placeholder="z.B. 140"></label>
-                <label class="settings-label">Z3 / Z4 Grenze<input type="number" class="zone-input" data-z="2" min="80" max="240" value="${zv(2)}" placeholder="z.B. 160"></label>
-                <label class="settings-label">Z4 / Z5 Grenze<input type="number" class="zone-input" data-z="3" min="80" max="240" value="${zv(3)}" placeholder="z.B. 175"></label>
+            <div class="settings-section-title">Manuelle Zonengrenzen (bpm)
+                <button id="calc-zones-btn" class="btn-secondary" style="margin-left:.5rem">Aus Maximalpuls berechnen</button>
             </div>
-            <p class="settings-hint">Leer lassen, um die automatische %-Berechnung zu verwenden.</p>
-
-            <button id="save-settings-btn" class="btn-primary">Speichern</button>
+            <div class="zones-grid">
+                <label class="settings-label">Z1/Z2<input type="number" class="zone-input" data-z="0" min="80" max="240" value="${zv(0)}" placeholder="z.B. 120"></label>
+                <label class="settings-label">Z2/Z3<input type="number" class="zone-input" data-z="1" min="80" max="240" value="${zv(1)}" placeholder="z.B. 140"></label>
+                <label class="settings-label">Z3/Z4<input type="number" class="zone-input" data-z="2" min="80" max="240" value="${zv(2)}" placeholder="z.B. 160"></label>
+                <label class="settings-label">Z4/Z5<input type="number" class="zone-input" data-z="3" min="80" max="240" value="${zv(3)}" placeholder="z.B. 175"></label>
+            </div>
+            <p class="settings-hint">Leer lassen → automatische Berechnung aus Maximalpuls (%).</p>
+            <button id="save-settings-btn" class="btn-primary">HR-Einstellungen speichern</button>
             <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
+
+        ${adminHtml}
     `;
+
+    const flash = (id, text = "✓ Gespeichert", isError = false) => {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.style.color = isError ? "var(--error)" : "";
+        el.classList.remove("hidden");
+        if (!isError) setTimeout(() => el.classList.add("hidden"), 2500);
+    };
+
+    document.getElementById("save-profile-btn").addEventListener("click", async () => {
+        const name = document.getElementById("profile-name").value.trim();
+        if (!name) return;
+        await request("PATCH", "/users/me", {
+            name,
+            birth_year: parseInt(document.getElementById("profile-birth").value) || null,
+            weight_kg:  parseFloat(document.getElementById("profile-weight").value) || null,
+        });
+        currentUser.name = name;
+        document.getElementById("nav-user").textContent = name;
+        flash("profile-msg");
+    });
+
+    document.getElementById("save-pw-btn").addEventListener("click", async () => {
+        const pw = document.getElementById("new-pw").value;
+        if (!pw || pw.length < 4) return;
+        await request("PATCH", "/users/me", { password: pw });
+        document.getElementById("new-pw").value = "";
+        flash("pw-msg", "✓ Geändert");
+    });
 
     document.getElementById("calc-zones-btn").addEventListener("click", () => {
         const mhr = parseInt(document.getElementById("max-hr-input").value);
         if (!mhr) return;
-        const pcts = [0.60, 0.70, 0.80, 0.90];
-        document.querySelectorAll(".zone-input").forEach((inp, i) => {
-            inp.value = Math.round(mhr * pcts[i]);
+        [0.60, 0.70, 0.80, 0.90].forEach((p, i) => {
+            document.querySelector(`.zone-input[data-z="${i}"]`).value = Math.round(mhr * p);
         });
     });
 
@@ -792,11 +906,52 @@ function loadSettings() {
         const vals = [...document.querySelectorAll(".zone-input")].map(inp => parseInt(inp.value) || null);
         const zones = vals.every(v => v !== null) ? vals : null;
         await request("PATCH", "/users/me", { max_hr: mhr, hr_zones: zones });
-        currentUser.max_hr   = mhr;
+        currentUser.max_hr = mhr;
         currentUser.hr_zones = zones;
-        const msg = document.getElementById("settings-msg");
-        msg.classList.remove("hidden");
-        setTimeout(() => msg.classList.add("hidden"), 2000);
+        flash("settings-msg");
+    });
+
+    if (u.is_admin) {
+        loadUserList();
+        document.getElementById("create-user-btn").addEventListener("click", async () => {
+            const name     = document.getElementById("new-name").value.trim();
+            const email    = document.getElementById("new-email").value.trim();
+            const password = document.getElementById("new-password").value;
+            const isAdmin  = document.getElementById("new-is-admin").checked;
+            if (!name || !email || !password) return;
+            try {
+                await request("POST", "/users/", { name, email, password, is_admin: isAdmin });
+                ["new-name","new-email","new-password"].forEach(id => document.getElementById(id).value = "");
+                document.getElementById("new-is-admin").checked = false;
+                flash("create-user-msg", "✓ Benutzer angelegt");
+                loadUserList();
+            } catch (err) {
+                flash("create-user-msg", err.message, true);
+            }
+        });
+    }
+}
+
+async function loadUserList() {
+    const el = document.getElementById("user-list");
+    if (!el) return;
+    const users = await request("GET", "/users/");
+    el.innerHTML = `<table class="pr-table">
+        <thead><tr><th>Name</th><th>E-Mail</th><th>Admin</th><th></th></tr></thead>
+        <tbody>${users.map(u => `<tr>
+            <td>${u.name}</td><td>${u.email}</td>
+            <td>${u.is_admin ? "✓" : ""}</td>
+            <td>${u.id !== currentUser.id
+                ? `<button class="btn-secondary del-user" data-id="${u.id}">Löschen</button>`
+                : ""}</td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+    el.querySelectorAll(".del-user").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            if (!confirm("Benutzer wirklich löschen? Alle Aktivitäten werden ebenfalls gelöscht.")) return;
+            await request("DELETE", `/users/${btn.dataset.id}`);
+            loadUserList();
+        });
     });
 }
 

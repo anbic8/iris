@@ -133,6 +133,12 @@ select {
 .pr-record-label { font-size: .8rem; color: var(--muted); margin-top: .2rem; }
 .pr-record-sub   { font-size: .75rem; color: var(--muted); margin-top: .15rem; }
 
+/* --- GPX Upload --- */
+.upload-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; margin-bottom: 1rem; }
+.upload-section form { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.upload-section input[type="file"] { font-size: .85rem; }
+.upload-msg { font-size: .85rem; }
+
 /* --- Map color toggle --- */
 .map-mode-ctrl { display: flex; gap: 2px; background: #fff; border-radius: var(--radius); box-shadow: 0 1px 5px rgba(0,0,0,.3); overflow: hidden; }
 .map-mode-btn { border: none; background: transparent; padding: .3rem .75rem; font-size: .8rem; cursor: pointer; color: var(--muted); }

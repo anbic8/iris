@@ -20,6 +20,7 @@ class UserCreate(BaseModel):
     name: str
     email: EmailStr
     password: str
+    is_admin: bool = False
 
 
 class UserUpdate(BaseModel):
@@ -76,12 +77,33 @@ def update_me(data: UserUpdate, db: Session = Depends(get_db), current_user: Use
     return {"detail": "Updated"}
 
 
+@router.get("/", dependencies=[Depends(require_admin)])
+def list_users(db: Session = Depends(get_db)):
+    users = db.query(User).order_by(User.id).all()
+    return [{"id": u.id, "name": u.name, "email": u.email, "is_admin": u.is_admin} for u in users]
+
+
 @router.post("/", dependencies=[Depends(require_admin)], status_code=status.HTTP_201_CREATED)
 def create_user(data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
-    user = User(name=data.name, email=data.email, password_hash=hash_password(data.password))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="E-Mail bereits vergeben")
+    user = User(name=data.name, email=data.email, password_hash=hash_password(data.password), is_admin=data.is_admin)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"id": user.id, "name": user.name, "email": user.email}
+    return {"id": user.id, "name": user.name, "email": user.email, "is_admin": user.is_admin}
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Eigenen Account kann nicht gelöscht werden")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    db.delete(user)
+    db.commit()

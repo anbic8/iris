@@ -128,14 +128,14 @@ I.R.I.S. steht für „Improve running insight system“.
 > **Grobziel:** App fühlt sich fertig an, alle 4 User können sie unabhängig nutzen.
 > **Meilenstein:** Produktionsreife App, vollständig nutzbar für die Familie.
 
-### 4.1 User-Management
-- [ ] Admin-User kann neue User anlegen (kein Self-Registration)
-- [ ] Profil-Seite: Name, Maximalpuls, Geburtsjahr, Gewicht (optional)
-- [ ] Passwort ändern
+### 4.1 User-Management ✅
+- [x] Admin-User kann neue User anlegen und löschen
+- [x] Profil-Seite: Name, Geburtsjahr, Gewicht
+- [x] Passwort ändern
 
-### 4.2 Manueller Upload
-- [ ] Alternativ zu WebDAV: GPX direkt im Browser hochladen
-- [ ] Sportart manuell wählen falls nicht in GPX
+### 4.2 Manueller Upload ✅
+- [x] GPX direkt im Browser hochladen (Button in Aktivitätsliste)
+- [x] Sportart manuell wählen als Override
 
 ### 4.3 UI-Polish
 - [ ] Responsives Design (Mobile tauglich)
