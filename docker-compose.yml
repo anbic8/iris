@@ -1,0 +1,60 @@
+services:
+  app:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./gpx:/app/gpx
+      - ./frontend:/app/frontend
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      - db
+
+  backup:
+    image: mariadb:10.11
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./db/backup:/backup
+    entrypoint: >
+      /bin/bash -c "
+        while true; do
+          sleep 86400;
+          mysqldump -h db -u$$DB_USER -p$$DB_PASSWORD $$DB_NAME > /backup/iris_$$(date +%Y%m%d_%H%M%S).sql &&
+          find /backup -name '*.sql' -mtime +7 -delete;
+        done"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

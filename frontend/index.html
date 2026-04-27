@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>I.R.I.S.</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+
+    <!-- Login -->
+    <div id="login-page" class="page">
+        <div class="login-box">
+            <h1>I.R.I.S.</h1>
+            <p class="subtitle">Improve Running Insight System</p>
+            <form id="login-form">
+                <input type="email" id="email" placeholder="E-Mail" required>
+                <input type="password" id="password" placeholder="Passwort" required>
+                <button type="submit">Anmelden</button>
+                <p id="login-error" class="error hidden"></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div id="main-page" class="page hidden">
+        <nav>
+            <span class="nav-brand">I.R.I.S.</span>
+            <a href="#" data-view="dashboard">Dashboard</a>
+            <a href="#" data-view="activities">Aktivitäten</a>
+            <span class="nav-spacer"></span>
+            <span id="nav-user"></span>
+            <button id="logout-btn">Abmelden</button>
+        </nav>
+        <main id="content"></main>
+    </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

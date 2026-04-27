@@ -1,0 +1,163 @@
+# Buildplan: RunTrack – Persönliche Aktivitäten-Web-App
+
+## Name
+I.R.I.S. steht für „Improve running insight system“. 
+
+## Technologie-Stack
+
+| Komponente | Technologie |
+|---|---|
+| Backend | Python 3.12 + FastAPI |
+| Datenbank | MariaDB 10.11 |
+| GPX-Parsing | gpxpy |
+| Container | Docker + Docker Compose |
+| Frontend | HTML/CSS/JS vanilla |
+| Karten | Leaflet.js + OpenStreetMap |
+| Charts | Chart.js |
+| WebDAV-Watcher | Python `watchdog` |
+
+---
+
+## Phase 1 – Fundament
+> **Grobziel:** Docker-Umgebung steht, erste GPX wird geparst und landet in der DB, Login funktioniert.
+> **Meilenstein:** GPX ablegen → automatisch verarbeitet → im Browser als Eintrag sichtbar nach Login.
+
+### 1.1 Docker-Compose Setup
+- [ ] `docker-compose.yml` mit Services: `app`, `db`, `adminer`, `backup`
+- [ ] Volumes für DB-Daten und GPX-Upload-Ordner
+- [ ] `.env`-Datei für Secrets (DB-Passwort, Secret-Key)
+- [ ] Health-Checks für DB-Service
+- [ ] `backup`-Service: täglicher `mysqldump` → `./db/backup/`, Backups älter als 7 Tage automatisch löschen
+
+### 1.2 Datenbankschema
+- [ ] Tabelle `users` (id, name, email, password_hash, created_at)
+- [ ] Tabelle `activities` (id, user_id, sport_type, start_time, duration_s, distance_m, elevation_gain_m, avg_hr, max_hr, avg_pace, gpx_file_path, created_at)
+- [ ] Tabelle `trackpoints` (id, activity_id, lat, lon, elevation, hr, timestamp)
+- [ ] Migrations-Skript `init.sql`
+
+### 1.3 GPX-Parser Service
+- [ ] `gpxpy` liest Datei
+- [ ] Extraktion: Distanz, Dauer, Startzeit, Höhenmeter, alle Trackpoints
+- [ ] HR-Daten aus Polar/Garmin Extensions (`<gpxtpx:hr>`)
+- [ ] Sportart-Erkennung aus GPX-Metadaten (Fallback: manuell beim Upload)
+- [ ] Pace/Geschwindigkeit Berechnung
+- [ ] Schreiben in DB (activities + trackpoints)
+- [ ] Duplikat-Erkennung (gleiche Startzeit + Distanz → nicht zweimal importieren)
+
+### 1.4 Ornder-Webdavsync-Watcher
+- [ ] Jeder User hat einen eigenen upload /processed ordner
+- [ ] Separater Python-Service überwacht Upload-Ordner (`watchdog`)
+- [ ] Neue `.gpx`-Datei → automatisch Parser aufrufen
+- [ ] Verarbeitete Dateien in `/processed`-Ordner verschieben
+- [ ] Fehler-Logging bei kaputten GPX-Dateien
+
+### 1.5 User-Authentifizierung
+- [ ] Login-Seite (Email + Passwort)
+- [ ] Session-basiert
+- [ ] Passwort-Hashing mit `bcrypt`
+- [ ] Logout
+- [ ] Jeder User sieht nur seine eigenen Aktivitäten
+
+---
+
+## Phase 2 – Statistiken & Dashboard
+> **Grobziel:** Alle wichtigen Kennzahlen berechnet und übersichtlich dargestellt.
+> **Meilenstein:** Dashboard zeigt Jahres-km, Bestzeiten, Detailseite mit Charts.
+
+### 2.1 Aktivitätsliste
+- [ ] Alle Aktivitäten chronologisch
+- [ ] Filter nach Sportart (Laufen / Radfahren / Wandern)
+- [ ] Filter nach Zeitraum
+- [ ] Sortierung (Datum, Distanz, Pace)
+- [ ] Kurzübersicht pro Eintrag (Datum, Distanz, Zeit, Pace, HR)
+
+### 2.2 Jahresstatistiken
+- [ ] Gesamt-km pro Jahr, aufgeteilt nach Sportart
+- [ ] Balkendiagramm: km pro Monat (Chart.js)
+- [ ] Vergleich Vorjahr
+- [ ] Anzahl Aktivitäten, Gesamthöhenmeter, Gesamtzeit
+
+### 2.3 Bestzeiten / Personal Records
+- [ ] Bestzeit über Standarddistanzen: 1 km, 5 km, 10 km, Halbmarathon, Marathon
+- [ ] Schnellste Durchschnitts-Pace pro Aktivität
+- [ ] Längste Aktivität (Distanz / Zeit)
+- [ ] Höchste Höhenmeter
+- [ ] PR wird automatisch markiert wenn neue Aktivität einen Rekord bricht
+
+### 2.4 Einzelaktivität-Detailseite
+- [ ] Alle Kennzahlen im Überblick
+- [ ] Pace-Kurve über Zeit (Chart.js)
+- [ ] HR-Kurve über Zeit
+- [ ] Höhenprofil
+- [ ] HR-Zonen-Verteilung (wenn HR vorhanden)
+
+---
+
+## Phase 3 – Karte & HR-Analyse
+> **Grobziel:** Strecke auf der Karte, Herzfrequenz sinnvoll ausgewertet.
+> **Meilenstein:** Aktivität auf der Karte mit HR-Farbkodierung, Zonenanalyse funktioniert.
+
+### 3.1 Leaflet-Karte pro Aktivität
+- [ ] Streckenverlauf als Polyline auf OSM
+- [ ] Start/Ziel-Marker
+- [ ] Hover über Strecke zeigt Pace/HR an diesem Punkt
+- [ ] Farbkodierung der Strecke nach Pace oder HR (Heatmap-Style)
+
+### 3.2 HR-Zonen-Analyse
+- [ ] Konfigurierbare Maximalpuls pro User (Einstellungsseite)
+- [ ] Automatische Berechnung der 5 HR-Zonen
+- [ ] Zeit in jeder Zone pro Aktivität
+- [ ] Donut-Chart zur Zonenverteilung
+
+### 3.3 Höhenprofil interaktiv
+- [ ] Chart.js Höhenprofil mit Hover-Tooltip
+- [ ] Synchronisierung mit Karte (Hover auf Chart → Punkt auf Karte)
+
+### 3.4 Kumulierte Karte *(nice-to-have)*
+- [ ] Alle Aktivitäten eines Users auf einer Karte
+- [ ] Filter nach Sportart / Zeitraum
+
+---
+
+## Phase 4 – Polish & Multi-User-Features
+> **Grobziel:** App fühlt sich fertig an, alle 4 User können sie unabhängig nutzen.
+> **Meilenstein:** Produktionsreife App, vollständig nutzbar für die Familie.
+
+### 4.1 User-Management
+- [ ] Admin-User kann neue User anlegen (kein Self-Registration)
+- [ ] Profil-Seite: Name, Maximalpuls, Geburtsjahr, Gewicht (optional)
+- [ ] Passwort ändern
+
+### 4.2 Manueller Upload
+- [ ] Alternativ zu WebDAV: GPX direkt im Browser hochladen
+- [ ] Sportart manuell wählen falls nicht in GPX
+
+### 4.3 UI-Polish
+- [ ] Responsives Design (Mobile tauglich)
+- [ ] Dark Mode
+- [ ] Ladeanimationen
+- [ ] Fehlermeldungen verständlich (kaputte GPX, doppelter Upload)
+
+### 4.4 Datenqualität
+- [ ] Ausreißer-Filterung bei Pace (GPS-Fehler)
+- [ ] Manuelle Aktivität bearbeiten (Sportart korrigieren, Notiz hinzufügen)
+
+### 4.5 Export
+- [ ] Aktivitätsdaten als CSV exportieren
+- [ ] Jahresübersicht als PDF *(optional)*
+
+---
+
+## Zeitschätzung (realistisch, nebenher)
+
+| Phase | Aufwand |
+|---|---|
+| Phase 1 – Fundament | 6–10 Std |
+| Phase 2 – Statistiken & Dashboard | 6–8 Std |
+| Phase 3 – Karte & HR-Analyse | 5–8 Std |
+| Phase 4 – Polish & Multi-User | 4–6 Std |
+| **Gesamt** | **~21–32 Std** |
+
+---
+
+*Erstellt: April 2026*
