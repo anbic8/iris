@@ -7,6 +7,5 @@ __pycache__/
 dist/
 build/
 db/backup/*.sql
-gpx/*/inbox/*
-gpx/*/processed/*
-gpx/*/failed/*
+gpx/
+*.gpx
