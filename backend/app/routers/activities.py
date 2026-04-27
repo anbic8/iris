@@ -112,8 +112,8 @@ async def upload_activity(
         db.rollback()
         raise HTTPException(status_code=409, detail="Aktivität existiert bereits (doppelte Startzeit)")
 
-    from app.routers.prs import invalidate_cache
-    invalidate_cache(current_user.id)
+    from app.routers.prs import update_prs_for_activity
+    update_prs_for_activity(db_act.id, current_user.id, db)
     return _activity_to_dict(db_act)
 
 
@@ -178,8 +178,8 @@ async def upload_json_activity(
             tmp_path.unlink(missing_ok=True)
 
     db_act = _insert_parsed(parsed, sport_type, current_user.id, db)
-    from app.routers.prs import invalidate_cache
-    invalidate_cache(current_user.id)
+    from app.routers.prs import update_prs_for_activity
+    update_prs_for_activity(db_act.id, current_user.id, db)
     return _activity_to_dict(db_act)
 
 
@@ -276,11 +276,12 @@ def update_activity(
         if update.sport_type not in VALID_SPORT_TYPES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
         activity.sport_type = update.sport_type
-        from app.routers.prs import invalidate_cache
-        invalidate_cache(current_user.id)
     if update.notes is not None:
         activity.notes = update.notes
     db.commit()
+    if update.sport_type is not None:
+        from app.routers.prs import full_recalculate_prs
+        full_recalculate_prs(current_user.id, db)
     return _activity_to_dict(activity)
 
 
@@ -298,5 +299,5 @@ def delete_activity(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
     db.delete(activity)
     db.commit()
-    from app.routers.prs import invalidate_cache
-    invalidate_cache(current_user.id)
+    from app.routers.prs import full_recalculate_prs
+    full_recalculate_prs(current_user.id, db)

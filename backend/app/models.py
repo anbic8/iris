@@ -42,6 +42,17 @@ class Activity(Base):
     created_at       = Column(DateTime, default=datetime.utcnow)
 
 
+class PersonalRecord(Base):
+    __tablename__ = "personal_records"
+
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    distance_km = Column(Numeric(6, 3), primary_key=True)
+    best_s      = Column(Integer, nullable=False)
+    pace_min_km = Column(Numeric(8, 3), nullable=False)
+    activity_id = Column(Integer, ForeignKey("activities.id", ondelete="SET NULL"), nullable=True)
+    recorded_at = Column(DateTime, nullable=True)
+
+
 class Trackpoint(Base):
     __tablename__ = "trackpoints"
 

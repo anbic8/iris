@@ -40,6 +40,18 @@ CREATE TABLE IF NOT EXISTS trackpoints (
     FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS personal_records (
+    user_id       INT          NOT NULL,
+    distance_km   DECIMAL(6,3) NOT NULL,
+    best_s        INT          NOT NULL,
+    pace_min_km   DECIMAL(8,3) NOT NULL,
+    activity_id   INT          DEFAULT NULL,
+    recorded_at   DATETIME     DEFAULT NULL,
+    PRIMARY KEY (user_id, distance_km),
+    FOREIGN KEY (user_id)     REFERENCES users(id)      ON DELETE CASCADE,
+    FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE SET NULL
+);
+
 CREATE INDEX idx_activities_user ON activities(user_id);
 CREATE INDEX idx_activities_time  ON activities(start_time);
 CREATE INDEX idx_trackpoints_act  ON trackpoints(activity_id);

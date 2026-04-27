@@ -83,8 +83,8 @@ def _process(path: Path, user_id: int) -> None:
             ])
             db.commit()
             logger.info("Imported %s for user %d, activity %d", path.name, user_id, db_activity.id)
-            from app.routers.prs import invalidate_cache
-            invalidate_cache(user_id)
+            from app.routers.prs import update_prs_for_activity
+            update_prs_for_activity(db_activity.id, user_id, db)
         except Exception:
             db.rollback()
             raise
