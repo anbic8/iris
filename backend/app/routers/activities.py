@@ -12,6 +12,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import Activity, Trackpoint, User
 from app.services.gpx_parser import parse_gpx
+from app.services.json_parser import parse_json_activity
 
 VALID_SPORT_TYPES = {"running", "cycling", "hiking", "other"}
 
@@ -111,6 +112,72 @@ async def upload_activity(
         db.rollback()
         raise HTTPException(status_code=409, detail="Aktivität existiert bereits (doppelte Startzeit)")
 
+    from app.routers.prs import invalidate_cache
+    invalidate_cache(current_user.id)
+    return _activity_to_dict(db_act)
+
+
+def _insert_parsed(parsed, sport_type_override, user_id, db):
+    """Shared DB insert logic for both upload endpoints."""
+    if sport_type_override:
+        parsed.sport_type = sport_type_override
+    try:
+        db_act = Activity(
+            user_id=user_id,
+            sport_type=parsed.sport_type,
+            start_time=parsed.start_time,
+            duration_s=parsed.duration_s,
+            distance_m=parsed.distance_m,
+            elevation_gain_m=parsed.elevation_gain_m,
+            avg_hr=parsed.avg_hr,
+            max_hr=parsed.max_hr,
+            avg_pace=parsed.avg_pace,
+        )
+        db.add(db_act)
+        db.flush()
+        db.bulk_save_objects([
+            Trackpoint(
+                activity_id=db_act.id,
+                lat=tp.lat, lon=tp.lon,
+                elevation=tp.elevation,
+                hr=tp.hr,
+                timestamp=tp.timestamp,
+            )
+            for tp in parsed.trackpoints if tp.timestamp
+        ])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Aktivität existiert bereits (doppelte Startzeit)")
+    return db_act
+
+
+@router.post("/upload-json", status_code=status.HTTP_201_CREATED)
+async def upload_json_activity(
+    file: UploadFile,
+    sport_type: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not file.filename.lower().endswith(".json"):
+        raise HTTPException(status_code=400, detail="Nur .json-Dateien werden unterstützt")
+    if sport_type and sport_type not in VALID_SPORT_TYPES:
+        raise HTTPException(status_code=400, detail="Ungültige Sportart")
+
+    content = await file.read()
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        parsed = parse_json_activity(tmp_path, sport_type or "other")
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"JSON konnte nicht gelesen werden: {exc}")
+    finally:
+        if tmp_path:
+            tmp_path.unlink(missing_ok=True)
+
+    db_act = _insert_parsed(parsed, sport_type, current_user.id, db)
     from app.routers.prs import invalidate_cache
     invalidate_cache(current_user.id)
     return _activity_to_dict(db_act)

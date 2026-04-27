@@ -325,7 +325,7 @@ function renderActivities(sport, year, sort) {
         </div>
         <div id="upload-section" class="upload-section hidden">
             <form id="upload-form">
-                <input type="file" id="gpx-file" accept=".gpx" multiple required>
+                <input type="file" id="gpx-file" accept=".gpx,.json" multiple required>
                 <select id="upload-sport">
                     <option value="">Sportart auto-erkennen</option>
                     <option value="running">🏃 Laufen</option>
@@ -384,18 +384,20 @@ function renderActivities(sport, year, sort) {
 
         for (const file of files) {
             msg.textContent = `${ok + fail + 1} / ${files.length} wird hochgeladen…`;
+            const isJson = file.name.toLowerCase().endsWith(".json");
+            const endpoint = isJson ? "/activities/upload-json" : "/activities/upload";
             const fd = new FormData();
             fd.append("file", file);
             if (sport) fd.append("sport_type", sport);
             try {
-                const res = await fetch(API + "/activities/upload", { method: "POST", body: fd });
+                const res = await fetch(API + endpoint, { method: "POST", body: fd });
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
                     const detail = err.detail ?? "Fehler";
                     const friendly = res.status === 409
                         ? "bereits importiert (doppelte Startzeit)"
                         : res.status === 422
-                            ? `ungültige GPX-Datei – ${detail}`
+                            ? `ungültige Datei – ${detail}`
                             : detail;
                     errors.push(`${file.name}: ${friendly}`);
                     fail++;
