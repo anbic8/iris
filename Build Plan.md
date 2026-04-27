@@ -22,41 +22,43 @@ I.R.I.S. steht für „Improve running insight system“.
 > **Grobziel:** Docker-Umgebung steht, erste GPX wird geparst und landet in der DB, Login funktioniert.
 > **Meilenstein:** GPX ablegen → automatisch verarbeitet → im Browser als Eintrag sichtbar nach Login.
 
-### 1.1 Docker-Compose Setup
-- [ ] `docker-compose.yml` mit Services: `app`, `db`, `adminer`, `backup`
-- [ ] Volumes für DB-Daten und GPX-Upload-Ordner
-- [ ] `.env`-Datei für Secrets (DB-Passwort, Secret-Key)
-- [ ] Health-Checks für DB-Service
-- [ ] `backup`-Service: täglicher `mysqldump` → `./db/backup/`, Backups älter als 7 Tage automatisch löschen
+### 1.1 Docker-Compose Setup ✅
+- [x] `docker-compose.yml` mit Services: `app`, `db`, `adminer`, `backup`
+- [x] Volumes für DB-Daten und GPX-Upload-Ordner
+- [x] `.env`-Datei für Secrets (DB-Passwort, Secret-Key)
+- [x] Health-Checks für DB-Service
+- [x] `backup`-Service: täglicher `mysqldump` → `./db/backup/`, Backups älter als 7 Tage automatisch löschen
 
-### 1.2 Datenbankschema
-- [ ] Tabelle `users` (id, name, email, password_hash, created_at)
-- [ ] Tabelle `activities` (id, user_id, sport_type, start_time, duration_s, distance_m, elevation_gain_m, avg_hr, max_hr, avg_pace, gpx_file_path, created_at)
-- [ ] Tabelle `trackpoints` (id, activity_id, lat, lon, elevation, hr, timestamp)
-- [ ] Migrations-Skript `init.sql`
+### 1.2 Datenbankschema ✅
+- [x] Tabelle `users` (id, name, email, password_hash, created_at)
+- [x] Tabelle `activities` (id, user_id, sport_type, start_time, duration_s, distance_m, elevation_gain_m, avg_hr, max_hr, avg_pace, gpx_file_path, created_at)
+- [x] Tabelle `trackpoints` (id, activity_id, lat, lon, elevation, hr, timestamp)
+- [x] Migrations-Skript `init.sql`
 
 ### 1.3 GPX-Parser Service
-- [ ] `gpxpy` liest Datei
-- [ ] Extraktion: Distanz, Dauer, Startzeit, Höhenmeter, alle Trackpoints
-- [ ] HR-Daten aus Polar/Garmin Extensions (`<gpxtpx:hr>`)
-- [ ] Sportart-Erkennung aus GPX-Metadaten (Fallback: manuell beim Upload)
-- [ ] Pace/Geschwindigkeit Berechnung
-- [ ] Schreiben in DB (activities + trackpoints)
-- [ ] Duplikat-Erkennung (gleiche Startzeit + Distanz → nicht zweimal importieren)
+- [x] `gpxpy` liest Datei
+- [x] Extraktion: Distanz, Dauer, Startzeit, Höhenmeter, alle Trackpoints
+- [x] HR-Daten aus Polar/Garmin Extensions (`<gpxtpx:hr>`)
+- [x] Sportart-Erkennung aus GPX-Metadaten (Fallback: manuell beim Upload)
+- [x] Pace/Geschwindigkeit Berechnung
+- [x] Schreiben in DB (activities + trackpoints)
+- [x] Duplikat-Erkennung (gleiche Startzeit + Distanz → nicht zweimal importieren)
+- [ ] **Test: echte GPX-Datei einlesen und Ergebnis prüfen**
 
-### 1.4 Ornder-Webdavsync-Watcher
-- [ ] Jeder User hat einen eigenen upload /processed ordner
-- [ ] Separater Python-Service überwacht Upload-Ordner (`watchdog`)
-- [ ] Neue `.gpx`-Datei → automatisch Parser aufrufen
-- [ ] Verarbeitete Dateien in `/processed`-Ordner verschieben
-- [ ] Fehler-Logging bei kaputten GPX-Dateien
+### 1.4 Ordner-WebDAV-Watcher
+- [x] Jeder User hat einen eigenen upload/processed Ordner
+- [x] Separater Python-Service überwacht Upload-Ordner (`watchdog`)
+- [x] Neue `.gpx`-Datei → automatisch Parser aufrufen
+- [x] Verarbeitete Dateien in `/processed`-Ordner verschieben
+- [x] Fehler-Logging bei kaputten GPX-Dateien
+- [ ] **Test: GPX-Datei in inbox ablegen → automatisch verarbeitet**
 
-### 1.5 User-Authentifizierung
-- [ ] Login-Seite (Email + Passwort)
-- [ ] Session-basiert
-- [ ] Passwort-Hashing mit `bcrypt`
-- [ ] Logout
-- [ ] Jeder User sieht nur seine eigenen Aktivitäten
+### 1.5 User-Authentifizierung ✅
+- [x] Login-Seite (Email + Passwort)
+- [x] Session-basiert
+- [x] Passwort-Hashing mit `bcrypt`
+- [x] Logout
+- [x] Jeder User sieht nur seine eigenen Aktivitäten
 
 ---
 
