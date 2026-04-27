@@ -287,6 +287,7 @@ async function loadPRs() {
     destroyCharts();
     const content = document.getElementById("content");
     content.innerHTML = `<h2>Bestzeiten</h2><p class="muted">Berechne Bestzeiten aus Trackpoints…</p>`;
+    await new Promise(r => setTimeout(r, 0));
 
     let data;
     try {
