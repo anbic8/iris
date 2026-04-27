@@ -10,6 +10,46 @@ const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern
 const SPORT_ICONS  = { running: "🏃", cycling: "🚴", hiking: "🥾", other: "🏅" };
 const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
+// --- Theme ---
+function applyChartTheme() {
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    Chart.defaults.color = isDark ? "#9ca3af" : "#666";
+    Chart.defaults.borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.1)";
+}
+
+function initTheme() {
+    const theme = localStorage.getItem("iris-theme") || "light";
+    document.documentElement.setAttribute("data-theme", theme);
+    const btn = document.getElementById("theme-toggle");
+    if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+    applyChartTheme();
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function exportCsv(acts) {
+    const header = ["Datum","Sportart","Distanz_km","Dauer_s","Pace_min_km","HR_avg","HR_max","Hoehenmeter_m","Notiz"];
+    const rows = acts.map(a => [
+        a.start_time ? new Date(a.start_time).toLocaleDateString("de-DE") : "",
+        a.sport_type,
+        a.distance_m ? (a.distance_m / 1000).toFixed(3) : "",
+        a.duration_s ?? "",
+        a.avg_pace ? fmtPace(a.avg_pace) : "",
+        a.avg_hr ?? "",
+        a.max_hr ?? "",
+        a.elevation_gain_m ? Math.round(a.elevation_gain_m) : "",
+        a.notes ? `"${String(a.notes).replace(/"/g, '""')}"` : "",
+    ]);
+    const csv = [header, ...rows].map(r => r.join(";")).join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "iris_aktivitaeten.csv"; a.click();
+    URL.revokeObjectURL(url);
+}
+
 // --- HTTP ---
 async function request(method, url, body) {
     const res = await fetch(API + url, {
@@ -142,25 +182,44 @@ function loadDashboard() {
 function renderDashboard(year, years) {
     destroyCharts();
     const content = document.getElementById("content");
+    const isAll = year === "all";
 
-    const curr = computeStats(allActivities.filter(a => getYear(a) === year));
-    const prev = computeStats(allActivities.filter(a => getYear(a) === year - 1));
+    const yearActs = isAll ? allActivities : allActivities.filter(a => getYear(a) === year);
+    const prevActs = isAll ? [] : allActivities.filter(a => getYear(a) === year - 1);
+    const curr = computeStats(yearActs);
+    const prev = computeStats(prevActs);
 
     const sports = ["running", "cycling", "hiking", "other"];
-    const monthlyBySport = {};
-    sports.forEach(sport => {
-        monthlyBySport[sport] = MONTHS.map((_, m) =>
-            allActivities
-                .filter(a => getYear(a) === year && getMonth(a) === m && a.sport_type === sport)
-                .reduce((s, a) => s + a.distance_m / 1000, 0)
-        );
-    });
+    let chartLabels, chartBySport, chartTitle;
 
-    const yearTabs = years.map(y =>
-        `<button class="year-tab${y === year ? " active" : ""}" data-year="${y}">${y}</button>`
+    if (isAll) {
+        const sortedYears = [...years].sort((a, b) => a - b);
+        chartLabels = sortedYears.map(String);
+        chartBySport = {};
+        sports.forEach(sport => {
+            chartBySport[sport] = sortedYears.map(y =>
+                allActivities.filter(a => getYear(a) === y && a.sport_type === sport)
+                    .reduce((s, a) => s + a.distance_m / 1000, 0)
+            );
+        });
+        chartTitle = "km pro Jahr";
+    } else {
+        chartLabels = MONTHS;
+        chartBySport = {};
+        sports.forEach(sport => {
+            chartBySport[sport] = MONTHS.map((_, m) =>
+                allActivities.filter(a => getYear(a) === year && getMonth(a) === m && a.sport_type === sport)
+                    .reduce((s, a) => s + a.distance_m / 1000, 0)
+            );
+        });
+        chartTitle = "km pro Monat";
+    }
+
+    const yearTabs = ["all", ...years].map(y =>
+        `<button class="year-tab${y === year ? " active" : ""}" data-year="${y}">${y === "all" ? "Gesamt" : y}</button>`
     ).join("");
 
-    const recent = allActivities.filter(a => getYear(a) === year).slice(0, 8);
+    const recent = yearActs.slice(0, 8);
 
     content.innerHTML = `
         <div class="page-header">
@@ -170,11 +229,11 @@ function renderDashboard(year, years) {
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-value">${curr.count}</div>
-                <div class="stat-label">Aktivitäten ${delta(curr.count, prev.count)}</div>
+                <div class="stat-label">Aktivitäten ${!isAll ? delta(curr.count, prev.count) : ""}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value">${curr.km.toFixed(1)}</div>
-                <div class="stat-label">km gesamt ${delta(curr.km, prev.km, 1)}</div>
+                <div class="stat-label">km gesamt ${!isAll ? delta(curr.km, prev.km, 1) : ""}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value">${fmtDuration(curr.time)}</div>
@@ -182,23 +241,23 @@ function renderDashboard(year, years) {
             </div>
             <div class="stat-card">
                 <div class="stat-value">${Math.round(curr.ele)}</div>
-                <div class="stat-label">Höhenmeter ${delta(curr.ele, prev.ele)}</div>
+                <div class="stat-label">Höhenmeter ${!isAll ? delta(curr.ele, prev.ele) : ""}</div>
             </div>
         </div>
-        <h3>km pro Monat</h3>
+        <h3>${chartTitle}</h3>
         <div class="chart-box"><canvas id="monthly-chart"></canvas></div>
-        <h3>Aktivitäten ${year}</h3>
-        <div class="activity-list">${recent.map(activityCard).join("") || "<p>Keine Aktivitäten in diesem Jahr.</p>"}</div>
+        <h3>${isAll ? "Letzte Aktivitäten" : "Aktivitäten " + year}</h3>
+        <div class="activity-list">${recent.map(activityCard).join("") || "<p>Keine Aktivitäten.</p>"}</div>
     `;
 
-    const activeSports = sports.filter(s => monthlyBySport[s].some(v => v > 0));
+    const activeSports = sports.filter(s => chartBySport[s].some(v => v > 0));
     mkChart("monthly-chart", {
         type: "bar",
         data: {
-            labels: MONTHS,
+            labels: chartLabels,
             datasets: activeSports.map(sport => ({
                 label: SPORT_NAMES[sport],
-                data: monthlyBySport[sport],
+                data: chartBySport[sport],
                 backgroundColor: SPORT_COLORS[sport],
                 borderRadius: 3,
             })),
@@ -214,7 +273,10 @@ function renderDashboard(year, years) {
     });
 
     document.querySelectorAll(".year-tab").forEach(btn => {
-        btn.addEventListener("click", () => renderDashboard(parseInt(btn.dataset.year), years));
+        btn.addEventListener("click", () => {
+            const v = btn.dataset.year;
+            renderDashboard(v === "all" ? "all" : parseInt(v), years);
+        });
     });
     document.querySelectorAll(".activity-card").forEach(el => {
         el.addEventListener("click", () => loadActivity(parseInt(el.dataset.id)));
@@ -256,7 +318,10 @@ function renderActivities(sport, year, sort) {
     content.innerHTML = `
         <div class="page-header">
             <h2>Aktivitäten (${filtered.length})</h2>
-            <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
+            <div style="display:flex;gap:.5rem;">
+                <button id="export-csv-btn" class="btn-secondary">↓ CSV</button>
+                <button id="upload-btn" class="btn-secondary">↑ GPX hochladen</button>
+            </div>
         </div>
         <div id="upload-section" class="upload-section hidden">
             <form id="upload-form">
@@ -271,6 +336,7 @@ function renderActivities(sport, year, sort) {
                 <button type="submit" class="btn-primary">Hochladen</button>
                 <span id="upload-msg" class="upload-msg"></span>
             </form>
+            <div id="upload-errors" class="upload-errors hidden"></div>
         </div>
         <div class="filter-bar">
             <div class="filter-group">${sportBtns}</div>
@@ -298,6 +364,7 @@ function renderActivities(sport, year, sort) {
     document.getElementById("year-select").addEventListener("change", rerender);
     document.getElementById("sort-select").addEventListener("change", rerender);
 
+    document.getElementById("export-csv-btn").addEventListener("click", () => exportCsv(filtered));
     document.getElementById("upload-btn").addEventListener("click", () => {
         document.getElementById("upload-section").classList.toggle("hidden");
     });
@@ -305,9 +372,12 @@ function renderActivities(sport, year, sort) {
         e.preventDefault();
         const files = [...document.getElementById("gpx-file").files];
         if (!files.length) return;
-        const sport = document.getElementById("upload-sport").value;
-        const msg   = document.getElementById("upload-msg");
+        const sport   = document.getElementById("upload-sport").value;
+        const msg     = document.getElementById("upload-msg");
+        const errDiv  = document.getElementById("upload-errors");
         msg.style.color = "";
+        errDiv.innerHTML = "";
+        errDiv.classList.add("hidden");
 
         let ok = 0, fail = 0;
         const errors = [];
@@ -321,7 +391,13 @@ function renderActivities(sport, year, sort) {
                 const res = await fetch(API + "/activities/upload", { method: "POST", body: fd });
                 if (!res.ok) {
                     const err = await res.json().catch(() => ({}));
-                    errors.push(`${file.name}: ${err.detail ?? "Fehler"}`);
+                    const detail = err.detail ?? "Fehler";
+                    const friendly = res.status === 409
+                        ? "bereits importiert (doppelte Startzeit)"
+                        : res.status === 422
+                            ? `ungültige GPX-Datei – ${detail}`
+                            : detail;
+                    errors.push(`${file.name}: ${friendly}`);
                     fail++;
                 } else {
                     allActivities.unshift(await res.json());
@@ -339,7 +415,8 @@ function renderActivities(sport, year, sort) {
         } else {
             msg.style.color = fail === files.length ? "var(--error)" : "";
             msg.textContent = `${ok} hochgeladen, ${fail} fehlgeschlagen`;
-            msg.title = errors.join("\n");
+            errDiv.innerHTML = errors.map(e => `<div class="upload-error-item">${escapeHtml(e)}</div>`).join("");
+            errDiv.classList.remove("hidden");
             if (ok > 0) renderActivities("all", "all", "date");
         }
     });
@@ -442,9 +519,10 @@ async function loadActivity(id) {
         content.innerHTML = `
             <div class="page-header">
                 <h2>${fmtDate(activity.start_time)}</h2>
-                <div style="display:flex;gap:.5rem;align-items:center;">
+                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
                     <select id="sport-type-select">${sportOptions}</select>
                     <button class="btn-secondary" id="back-btn">← Zurück</button>
+                    <button class="btn-delete" id="delete-btn" title="Aktivität löschen">🗑</button>
                 </div>
             </div>
             <div class="stats-grid">
@@ -460,12 +538,49 @@ async function loadActivity(id) {
             ${hasPace ? '<h3>Pace</h3><div class="chart-box"><canvas id="chart-pace"></canvas></div>'         : ""}
             ${hasHr   ? '<h3>Herzfrequenz</h3><div class="chart-box"><canvas id="chart-hr"></canvas></div>'   : ""}
             ${hasHr && currentUser.max_hr ? '<h3>HR-Zonen</h3><div class="chart-box chart-box--zones"><canvas id="chart-hr-zones"></canvas></div>' : ""}
+            <div class="notes-section">
+                <h3>Notiz <span id="notes-status" class="notes-status"></span></h3>
+                <textarea id="notes-input" class="notes-input" placeholder="Notiz hinzufügen…" rows="3">${escapeHtml(activity.notes || "")}</textarea>
+            </div>
         `;
 
         document.getElementById("back-btn").addEventListener("click", loadActivities);
+        document.getElementById("delete-btn").addEventListener("click", async () => {
+            if (!confirm("Aktivität wirklich löschen?")) return;
+            try {
+                await request("DELETE", `/activities/${id}`);
+                allActivities = allActivities.filter(a => a.id !== id);
+                loadActivities();
+            } catch (e) {
+                alert("Fehler beim Löschen: " + e.message);
+            }
+        });
         document.getElementById("sport-type-select").addEventListener("change", async (e) => {
             await request("PATCH", `/activities/${id}`, { sport_type: e.target.value });
         });
+
+        let _noteTimer;
+        document.getElementById("notes-input").addEventListener("input", () => {
+            clearTimeout(_noteTimer);
+            const statusEl = document.getElementById("notes-status");
+            statusEl.textContent = "…";
+            statusEl.className = "notes-status";
+            _noteTimer = setTimeout(async () => {
+                const notes = document.getElementById("notes-input")?.value ?? "";
+                try {
+                    await request("PATCH", `/activities/${id}`, { notes });
+                    const act = allActivities.find(a => a.id === id);
+                    if (act) act.notes = notes;
+                    statusEl.textContent = "✓ gespeichert";
+                    statusEl.className = "notes-status notes-status--ok";
+                    setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000);
+                } catch {
+                    statusEl.textContent = "Fehler";
+                    statusEl.className = "notes-status notes-status--err";
+                }
+            }, 800);
+        });
+
         if (trackpoints.length > 0) {
             renderMap(trackpoints);
             renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
@@ -744,6 +859,16 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 
 document.getElementById("nav-toggle").addEventListener("click", () => {
     document.querySelector(".nav-links").classList.toggle("open");
+});
+
+document.getElementById("theme-toggle").addEventListener("click", () => {
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    const next = isDark ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("iris-theme", next);
+    document.getElementById("theme-toggle").textContent = next === "dark" ? "☀️" : "🌙";
+    applyChartTheme();
+    destroyCharts();
 });
 
 document.querySelectorAll("nav a[data-view]").forEach(link => {
@@ -1029,4 +1154,5 @@ function renderHrZones(trackpoints, maxHr, customZones) {
     });
 }
 
+initTheme();
 init();

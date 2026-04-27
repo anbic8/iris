@@ -17,8 +17,8 @@ _cache: dict[int, dict] = {}
 def invalidate_cache(user_id: int) -> None:
     _cache.pop(user_id, None)
 
-STANDARD_KM = [1.0, 5.0, 10.0, 21.095, 42.195]
-STANDARD_LABELS = ["1 km", "5 km", "10 km", "Halbmarathon", "Marathon"]
+STANDARD_KM = [1.0, 3.0, 5.0, 10.0, 21.095, 42.195]
+STANDARD_LABELS = ["1 km", "3 km", "5 km", "10 km", "Halbmarathon", "Marathon"]
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

@@ -139,16 +139,18 @@ I.R.I.S. steht für „Improve running insight system“.
 
 ### 4.3 UI-Polish
 - [x] Responsives Design (Mobile tauglich, Hamburger-Menü, Media Queries)
-- [ ] Dark Mode
-- [ ] Fehlermeldungen verständlich (kaputte GPX, doppelter Upload)
+- [x] Dark Mode (Toggle in Nav, localStorage)
+- [x] Fehlermeldungen verständlich (kaputte GPX, doppelter Upload – inline Liste)
+- [x] 3km Zeit in Bestzeiten eingefügt
+- [x] Option zum Löschen von Aktivitäten (Mülleimer-Button in Detailseite)
 
 ### 4.4 Datenqualität
-- [ ] Ausreißer-Filterung bei Pace (GPS-Fehler)
+- [x] Ausreißer-Filterung bei Pace (GPS-Fehler) – p < 1.5 oder > 30 min/km gefiltert
 - [x] Sportart korrigieren (Dropdown in Einzelaktivität)
-- [ ] Notiz hinzufügen
+- [x] Notiz hinzufügen (Auto-Save in Aktivitätsdetail)
 
 ### 4.5 Export
-- [ ] Aktivitätsdaten als CSV exportieren
+- [x] Aktivitätsdaten als CSV exportieren (Button in Aktivitätsliste, UTF-8 BOM)
 - [ ] Jahresübersicht als PDF *(optional)*
 
 ---

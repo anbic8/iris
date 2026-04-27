@@ -17,7 +17,8 @@ VALID_SPORT_TYPES = {"running", "cycling", "hiking", "other"}
 
 
 class ActivityUpdate(BaseModel):
-    sport_type: str
+    sport_type: Optional[str] = None
+    notes: Optional[str] = None
 
 router = APIRouter()
 
@@ -198,18 +199,21 @@ def update_activity(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if update.sport_type not in VALID_SPORT_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
     activity = db.query(Activity).filter(
         Activity.id == activity_id,
         Activity.user_id == current_user.id,
     ).first()
     if not activity:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
-    activity.sport_type = update.sport_type
+    if update.sport_type is not None:
+        if update.sport_type not in VALID_SPORT_TYPES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid sport_type")
+        activity.sport_type = update.sport_type
+        from app.routers.prs import invalidate_cache
+        invalidate_cache(current_user.id)
+    if update.notes is not None:
+        activity.notes = update.notes
     db.commit()
-    from app.routers.prs import invalidate_cache
-    invalidate_cache(current_user.id)
     return _activity_to_dict(activity)
 
 
@@ -227,3 +231,5 @@ def delete_activity(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activity not found")
     db.delete(activity)
     db.commit()
+    from app.routers.prs import invalidate_cache
+    invalidate_cache(current_user.id)
