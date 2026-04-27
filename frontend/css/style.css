@@ -77,3 +77,48 @@ h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 .5rem; }
 
 /* --- Map --- */
 #map { height: 400px; border-radius: var(--radius); margin: 1rem 0; }
+
+/* --- Page header --- */
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: .5rem; flex-wrap: wrap; gap: .5rem; }
+.page-header h2 { margin-bottom: 0; }
+
+/* --- Year tabs --- */
+.year-tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
+.year-tab {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: .3rem .8rem; border-radius: 20px; cursor: pointer; font-size: .85rem;
+}
+.year-tab:hover { border-color: var(--primary); color: var(--primary); }
+.year-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* --- Filter bar --- */
+.filter-bar { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center; }
+.filter-group { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+.filter-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: .35rem .85rem; border-radius: 20px; cursor: pointer; font-size: .85rem; white-space: nowrap;
+}
+.filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+.filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+select {
+    padding: .35rem .7rem; border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: .85rem; background: var(--surface); cursor: pointer; color: var(--text);
+}
+
+/* --- Chart --- */
+.chart-box {
+    background: var(--surface); border-radius: var(--radius);
+    padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 1.5rem;
+}
+
+/* --- Delta indicators --- */
+.delta-up   { color: #2e7d32; font-size: .75rem; font-weight: 600; }
+.delta-down { color: #c62828; font-size: .75rem; font-weight: 600; }
+
+/* --- Secondary button --- */
+.btn-secondary {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: .35rem .85rem; border-radius: var(--radius); cursor: pointer; font-size: .85rem;
+}
+.btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
