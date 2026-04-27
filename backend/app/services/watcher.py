@@ -1,5 +1,6 @@
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from watchdog.events import FileCreatedEvent, FileSystemEventHandler
@@ -26,7 +27,22 @@ class GpxHandler(FileSystemEventHandler):
         except (IndexError, ValueError):
             logger.warning("Cannot determine user_id from path: %s", path)
             return
+        _wait_for_stable(path)
         _process(path, user_id)
+
+
+def _wait_for_stable(path: Path, interval: float = 1.0, retries: int = 10) -> None:
+    """Wait until the file size stops changing (write complete)."""
+    last_size = -1
+    for _ in range(retries):
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
+            return
+        if size == last_size:
+            return
+        last_size = size
+        time.sleep(interval)
 
 
 def _process(path: Path, user_id: int) -> None:
