@@ -283,43 +283,28 @@ function renderActivities(sport, year, sort) {
 }
 
 // --- Personal Records ---
-const STD_DISTANCES = [
-    { label: "1 km",          km: 1,      tol: 0.25 },
-    { label: "5 km",          km: 5,      tol: 0.5  },
-    { label: "10 km",         km: 10,     tol: 1.0  },
-    { label: "Halbmarathon",  km: 21.095, tol: 1.5  },
-    { label: "Marathon",      km: 42.195, tol: 2.0  },
-];
-
-function loadPRs() {
+async function loadPRs() {
     destroyCharts();
     const content = document.getElementById("content");
-    const running = allActivities.filter(a => a.sport_type === "running" && a.avg_pace);
+    content.innerHTML = `<h2>Bestzeiten</h2><p class="muted">Berechne Bestzeiten aus Trackpoints…</p>`;
 
-    // Standard distance PRs
-    const prRows = STD_DISTANCES.map(({ label, km, tol }) => {
-        const candidates = running.filter(a => {
-            const d = a.distance_m / 1000;
-            return d >= km - tol && d <= km + tol;
-        }).sort((a, b) => a.avg_pace - b.avg_pace);
+    let data;
+    try {
+        data = await request("GET", "/prs/");
+    } catch (e) {
+        content.innerHTML = `<p class="error">${e.message}</p>`;
+        return;
+    }
 
-        if (!candidates.length) {
-            return `<tr><td>${label}</td><td colspan="3" class="pr-empty">–</td></tr>`;
-        }
-        const best = candidates[0];
-        const time = estimatedTime(best.avg_pace, km);
-        return `<tr class="pr-row" data-id="${best.id}">
-            <td>${label}</td>
-            <td><strong>${time}</strong></td>
-            <td>${fmtPace(best.avg_pace)} /km</td>
-            <td>${fmtDate(best.start_time)}</td>
+    const prRows = data.standard.map(pr => {
+        if (!pr) return `<tr><td>–</td><td colspan="3" class="pr-empty">–</td></tr>`;
+        return `<tr class="pr-row" data-id="${pr.activity_id}">
+            <td>${pr.label}</td>
+            <td><strong>${fmtSeconds(pr.best_s)}</strong></td>
+            <td>${fmtPace(pr.pace_min_km)} /km</td>
+            <td>${fmtDate(pr.date)}</td>
         </tr>`;
     }).join("");
-
-    // Records
-    const byDist = [...allActivities].sort((a, b) => b.distance_m - a.distance_m);
-    const byEle  = [...allActivities].filter(a => a.elevation_gain_m).sort((a, b) => b.elevation_gain_m - a.elevation_gain_m);
-    const byPace = [...running].sort((a, b) => a.avg_pace - b.avg_pace);
 
     const recordCard = (label, value, sub, id) =>
         `<div class="pr-record-card" data-id="${id}">
@@ -328,23 +313,23 @@ function loadPRs() {
             <div class="pr-record-sub">${sub}</div>
         </div>`;
 
+    const { longest, most_elevation, fastest_pace } = data.records;
+
     content.innerHTML = `
         <h2>Bestzeiten</h2>
-
         <h3>🏃 Laufen – Standarddistanzen</h3>
         <div class="pr-table-wrap">
             <table class="pr-table">
-                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Ø Pace</th><th>Datum</th></tr></thead>
+                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Pace</th><th>Datum</th></tr></thead>
                 <tbody>${prRows}</tbody>
             </table>
-            <p class="pr-hint">Zeigt die schnellste Aktivität innerhalb ±Toleranz der Standarddistanz.</p>
+            <p class="pr-hint">Schnellstes Segment der jeweiligen Distanz aus allen Aktivitäten (Sliding Window über Trackpoints).</p>
         </div>
-
         <h3>🏆 Rekorde</h3>
         <div class="pr-records">
-            ${byDist[0]  ? recordCard("Längste Strecke",      (byDist[0].distance_m / 1000).toFixed(2) + " km", fmtDate(byDist[0].start_time),  byDist[0].id)  : ""}
-            ${byEle[0]   ? recordCard("Meiste Höhenmeter",    Math.round(byEle[0].elevation_gain_m) + " Hm",    fmtDate(byEle[0].start_time),    byEle[0].id)   : ""}
-            ${byPace[0]  ? recordCard("Schnellste Ø Pace",    fmtPace(byPace[0].avg_pace) + " /km",            fmtDate(byPace[0].start_time),   byPace[0].id)  : ""}
+            ${longest       ? recordCard("Längste Strecke",    (longest.distance_m / 1000).toFixed(2) + " km", fmtDate(longest.start_time),       longest.id)       : ""}
+            ${most_elevation? recordCard("Meiste Höhenmeter",  Math.round(most_elevation.elevation_gain_m) + " Hm", fmtDate(most_elevation.start_time), most_elevation.id): ""}
+            ${fastest_pace  ? recordCard("Schnellste Ø Pace",  fmtPace(fastest_pace.avg_pace) + " /km",        fmtDate(fastest_pace.start_time),    fastest_pace.id)  : ""}
         </div>
     `;
 
@@ -354,11 +339,11 @@ function loadPRs() {
     });
 }
 
-function estimatedTime(paceMinPerKm, distKm) {
-    const total = paceMinPerKm * distKm;
-    const h = Math.floor(total / 60);
-    const m = Math.floor(total % 60);
-    const s = Math.round((total * 60) % 60);
+function fmtSeconds(totalSec) {
+    if (!totalSec) return "–";
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
     return h > 0
         ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
         : `${m}:${String(s).padStart(2, "0")}`;
