@@ -174,6 +174,43 @@ function calcVo2max(acts) {
     return best ? Math.round(best.v * 10) / 10 : null;
 }
 
+function paceFromVo2pct(vo2max, pct) {
+    // Solve: -4.60 + 0.182258v + 0.000104v² = vo2max * pct  →  quadratic for v (m/min)
+    const target = vo2max * pct;
+    const a = 0.000104, b = 0.182258, c = -(target + 4.60);
+    const disc = b * b - 4 * a * c;
+    if (disc < 0 || vo2max < 20) return null;
+    const v = (-b + Math.sqrt(disc)) / (2 * a); // m/min
+    return v > 0 ? 1000 / v : null; // min/km
+}
+
+function getZoneDetails(zoneStr, user, vo2max) {
+    const bounds = getZoneBoundaries(user);
+    const maxHr  = estimateMaxHr(user);
+    // HR bounds per zone string
+    const hrMap = {
+        "Z1–Z2": [0,          bounds[1]],
+        "Z2":    [bounds[0],  bounds[1]],
+        "Z2–Z3": [bounds[0],  bounds[2]],
+        "Z3–Z4": [bounds[1],  bounds[3]],
+        "Z4–Z5": [bounds[2],  maxHr    ],
+    };
+    // %VO2max range per zone string (Jack Daniels training intensities)
+    const vo2pctMap = {
+        "Z1–Z2": [0.55, 0.70],
+        "Z2":    [0.62, 0.74],
+        "Z2–Z3": [0.65, 0.82],
+        "Z3–Z4": [0.80, 0.92],
+        "Z4–Z5": [0.92, 1.00],
+    };
+    const hr  = hrMap[zoneStr]     ?? null;
+    const pct = vo2pctMap[zoneStr] ?? null;
+    const pace = (vo2max && pct)
+        ? [paceFromVo2pct(vo2max, pct[1]), paceFromVo2pct(vo2max, pct[0])] // slow→fast
+        : null;
+    return { hr, pace };
+}
+
 function predictRaceTime(vo2max, distKm) {
     if (!vo2max || vo2max < 20) return null;
     let lo = 1, hi = 600;
@@ -1263,13 +1300,21 @@ async function loadForm() {
             ${daysToForm ? ` · Bei vollständiger Regeneration in ca. <strong>${daysToForm} Tagen</strong> in Wettkampfform.` : ""}
         </div>
 
-        <div class="form-recommendation">
-            <div class="form-rec-header">
-                <span class="form-rec-icon">${rec.icon}</span>
-                <span class="form-rec-when">Nächstes Training: <strong>${rec.when}${rec.zone ? ` · ${rec.zone}` : ""}</strong></span>
-            </div>
-            <p class="form-rec-text">${rec.text}</p>
-        </div>
+        ${(() => {
+            const details = rec.zone ? getZoneDetails(rec.zone, currentUser, vo2max) : null;
+            const hrStr   = details?.hr   ? `💓 ${details.hr[0]}–${details.hr[1]} bpm` : "";
+            const paceStr = details?.pace && details.pace[0] && details.pace[1]
+                ? `🏃 ${fmtPace(details.pace[0])}–${fmtPace(details.pace[1])} /km` : "";
+            const extras  = [hrStr, paceStr].filter(Boolean).join("  &nbsp;·&nbsp;  ");
+            return `<div class="form-recommendation">
+                <div class="form-rec-header">
+                    <span class="form-rec-icon">${rec.icon}</span>
+                    <span class="form-rec-when">Nächstes Training: <strong>${rec.when}${rec.zone ? ` · ${rec.zone}` : ""}</strong></span>
+                </div>
+                <p class="form-rec-text">${rec.text}</p>
+                ${extras ? `<p class="form-rec-details">${extras}</p>` : ""}
+            </div>`;
+        })()}
 
         <div class="form-grid-2">
             <div>
