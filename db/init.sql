@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS activities (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     user_id          INT          NOT NULL,
-    sport_type       ENUM('running','cycling','hiking','other') NOT NULL DEFAULT 'other',
+    sport_type       ENUM('running','cycling','hiking','other','trail') NOT NULL DEFAULT 'other',
     start_time       DATETIME     NOT NULL,
     duration_s       INT          NOT NULL,
     distance_m       DECIMAL(10,2) NOT NULL,

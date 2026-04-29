@@ -5,9 +5,9 @@ let chartInstances = [];
 let _mapInstance  = null;
 let _hoverMarker  = null;
 
-const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0" };
-const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges" };
-const SPORT_ICONS  = { running: "🏃", cycling: "🚴", hiking: "🥾", other: "🏅" };
+const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0", trail: "#9b59b6" };
+const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges", trail: "Berglauf" };
+const SPORT_ICONS  = { running: "🏃", cycling: "🚴", hiking: "🥾", other: "🏅", trail: "⛰️" };
 const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 
 // --- Theme ---
@@ -142,7 +142,7 @@ function calcTrimp(act, user) {
 }
 
 function calcVo2(act) {
-    if (!act.avg_pace || !act.duration_s || act.sport_type !== "running") return null;
+    if (!act.avg_pace || !act.duration_s || (act.sport_type !== "running" && act.sport_type !== "trail")) return null;
     const v = 1000 / act.avg_pace;        // m/min
     const t = act.duration_s / 60;        // minutes
     if (t < 8 || v < 80) return null;
@@ -395,7 +395,7 @@ function renderDashboard(year, years) {
     const curr = computeStats(yearActs);
     const prev = computeStats(prevActs);
 
-    const sports = ["running", "cycling", "hiking", "other"];
+    const sports = ["running", "trail", "cycling", "hiking", "other"];
     let chartLabels, chartBySport, chartTitle;
 
     if (isAll) {
@@ -485,7 +485,7 @@ function renderDashboard(year, years) {
     // --- Monatsübersicht table ---
     const tbl = document.getElementById("month-overview-table");
     if (tbl) {
-        const sports = ["running", "cycling", "hiking", "other"];
+        const sports = ["running", "trail", "cycling", "hiking", "other"];
         if (isAll) {
             const sortedYears = [...years].sort((a, b) => a - b);
             const rows = sortedYears.map(y => {
@@ -541,7 +541,7 @@ function renderActivities(sport, year, sort) {
     else if (sort === "pace")  filtered = [...filtered].filter(a => a.avg_pace).sort((a, b) => a.avg_pace - b.avg_pace);
     else                       filtered = [...filtered].sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
 
-    const sportBtns = ["all", "running", "cycling", "hiking", "other"].map(s =>
+    const sportBtns = ["all", "running", "trail", "cycling", "hiking", "other"].map(s =>
         `<button class="filter-btn${sport === s ? " active" : ""}" data-sport="${s}">
             ${s === "all" ? "Alle" : SPORT_ICONS[s] + " " + SPORT_NAMES[s]}
         </button>`
@@ -569,6 +569,7 @@ function renderActivities(sport, year, sort) {
                 <select id="upload-sport">
                     <option value="">Sportart auto-erkennen</option>
                     <option value="running">🏃 Laufen</option>
+                    <option value="trail">⛰️ Berglauf</option>
                     <option value="cycling">🚴 Radfahren</option>
                     <option value="hiking">🥾 Wandern</option>
                     <option value="other">🏅 Sonstige</option>
@@ -769,6 +770,7 @@ async function loadActivity(id) {
 
         const sportOptions = [
             ["running", "🏃 Laufen"],
+            ["trail",   "⛰️ Berglauf"],
             ["cycling", "🚴 Radfahren"],
             ["hiking",  "🥾 Wandern"],
             ["other",   "🏅 Sonstige"],
@@ -791,6 +793,7 @@ async function loadActivity(id) {
                 ${activity.max_hr  ? `<div class="stat-card"><div class="stat-value">${activity.max_hr}</div><div class="stat-label">Max HR bpm</div></div>` : ""}
                 ${activity.elevation_gain_m ? `<div class="stat-card"><div class="stat-value">${Math.round(activity.elevation_gain_m)}</div><div class="stat-label">Höhenmeter</div></div>` : ""}
             </div>
+            <div id="activity-analysis"></div>
             <div id="map"></div>
             ${hasEle  ? '<h3>Höhenprofil</h3><div class="chart-box"><canvas id="chart-ele"></canvas></div>'   : ""}
             ${hasPace ? '<h3>Pace</h3><div class="chart-box"><canvas id="chart-pace"></canvas></div>'         : ""}
@@ -840,6 +843,7 @@ async function loadActivity(id) {
         });
 
         if (trackpoints.length > 0) {
+            document.getElementById("activity-analysis").innerHTML = renderActivityAnalysis(activity, trackpoints);
             renderMap(trackpoints);
             renderActivityCharts(trackpoints, { hasEle, hasHr, hasPace });
             if (hasHr && currentUser.max_hr) renderHrZones(trackpoints, currentUser.max_hr, currentUser.hr_zones ?? null);
@@ -1153,6 +1157,7 @@ async function loadMapOverview() {
                 <div class="filter-group" id="map-sport-filter">
                     <button class="filter-btn active" data-sport="all">Alle</button>
                     <button class="filter-btn" data-sport="running">🏃 Laufen</button>
+                    <button class="filter-btn" data-sport="trail">⛰️ Berglauf</button>
                     <button class="filter-btn" data-sport="cycling">🚴 Radfahren</button>
                     <button class="filter-btn" data-sport="hiking">🥾 Wandern</button>
                     <button class="filter-btn" data-sport="other">🏅 Sonstige</button>
@@ -1199,6 +1204,136 @@ async function loadMapOverview() {
             polylines.filter(p => sport === "all" || p._sport === sport).forEach(p => group.addLayer(p));
         });
     });
+}
+
+// --- Activity analysis helpers ---
+
+function calcKmSplits(trackpoints) {
+    if (!trackpoints || trackpoints.length < 2) return [];
+    const splits = [];
+    const cumDist = [0];
+    const times   = [];
+    let hasTs = false;
+    for (let i = 0; i < trackpoints.length; i++) {
+        times.push(trackpoints[i].timestamp ? new Date(trackpoints[i].timestamp) : null);
+        if (i > 0) {
+            const d = haversineKm(trackpoints[i-1].lat, trackpoints[i-1].lon, trackpoints[i].lat, trackpoints[i].lon);
+            cumDist.push(cumDist[i-1] + d);
+        }
+        if (times[i]) hasTs = true;
+    }
+    if (!hasTs) return [];
+    let kmMark = 1, prevKmTime = times.find(t => t) || times[0];
+    for (let i = 1; i < trackpoints.length && kmMark <= 100; i++) {
+        if (!times[i] || !times[i-1]) continue;
+        while (cumDist[i] >= kmMark && kmMark <= 100) {
+            const segDist = cumDist[i] - cumDist[i-1];
+            const frac    = segDist > 0 ? (kmMark - cumDist[i-1]) / segDist : 1;
+            const kmTs    = new Date(times[i-1].getTime() + frac * (times[i] - times[i-1]));
+            const splitS  = Math.round((kmTs - prevKmTime) / 1000);
+            if (splitS > 0) splits.push({ km: kmMark, splitSeconds: splitS });
+            prevKmTime = kmTs;
+            kmMark++;
+        }
+    }
+    return splits;
+}
+
+function calcGradientStats(trackpoints) {
+    const pts = trackpoints.filter(p => p.elevation !== null);
+    if (pts.length < 2) return null;
+    let gain = 0, dist = 0, maxGrad = 0;
+    for (let i = 1; i < pts.length; i++) {
+        const d = haversineKm(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon) * 1000;
+        const dEle = pts[i].elevation - pts[i-1].elevation;
+        if (d > 1) {
+            if (dEle > 0) gain += dEle;
+            const g = Math.abs(dEle / d * 100);
+            if (g < 60 && g > maxGrad) maxGrad = g;
+        }
+        dist += d;
+    }
+    return {
+        avgGradient: dist > 0 ? Math.round(gain / dist * 1000) / 10 : 0,
+        maxGradient: Math.round(maxGrad * 10) / 10,
+    };
+}
+
+function renderActivityAnalysis(activity, trackpoints) {
+    const trimp  = Math.round(calcTrimp(activity, currentUser));
+    const vo2est = calcVo2(activity);
+    const isRun  = activity.sport_type === "running" || activity.sport_type === "trail";
+    const isTrail = activity.sport_type === "trail" || activity.sport_type === "hiking";
+
+    const [effortLabel, effortColor] =
+        trimp < 30  ? ["Locker",        "#43c59e"] :
+        trimp < 60  ? ["Moderat",       "#4f8ef7"] :
+        trimp < 100 ? ["Intensiv",      "#f7b84f"] :
+        trimp < 150 ? ["Sehr intensiv", "#e06666"] :
+                      ["Maximal",       "#cc0000"];
+
+    // Pace comparison vs last 90 days
+    let compareHtml = "";
+    if (isRun && activity.avg_pace) {
+        const recent = allActivities.filter(a =>
+            (a.sport_type === "running" || a.sport_type === "trail") &&
+            a.avg_pace && a.id !== activity.id &&
+            new Date(a.start_time) > new Date(Date.now() - 90 * 86400000)
+        );
+        if (recent.length >= 3) {
+            const avgP = recent.reduce((s, a) => s + parseFloat(a.avg_pace), 0) / recent.length;
+            const diff = avgP - parseFloat(activity.avg_pace); // positive = faster
+            const pct  = Math.round(Math.abs(diff) / avgP * 100);
+            if (pct >= 1) {
+                const cls = diff > 0 ? "delta-up" : "delta-down";
+                compareHtml = `<p class="analysis-compare"><span class="${cls}">${diff > 0 ? "▲" : "▼"} ${pct}% ${diff > 0 ? "schneller" : "langsamer"}</span> als dein Ø der letzten 90 Tage (${fmtPace(avgP)} /km)</p>`;
+            }
+        }
+    }
+
+    // Gradient (trail + hiking)
+    const grad = isTrail ? calcGradientStats(trackpoints) : null;
+    const vertRate = (isTrail && activity.elevation_gain_m && activity.duration_s)
+        ? Math.round(activity.elevation_gain_m / activity.duration_s * 3600) : null;
+
+    // Chip row
+    const chips = [
+        `<div class="analysis-chip">TRIMP&ensp;<strong>${trimp}</strong></div>`,
+        `<div class="analysis-chip">Intensität&ensp;<strong style="color:${effortColor}">${effortLabel}</strong></div>`,
+        vo2est ? `<div class="analysis-chip">VO₂-Schätzung&ensp;<strong>${vo2est.toFixed(1)}</strong></div>` : "",
+        grad   ? `<div class="analysis-chip">Ø Steigung&ensp;<strong>${grad.avgGradient} %</strong></div>` : "",
+        grad   ? `<div class="analysis-chip">Max. Steigung&ensp;<strong>${grad.maxGradient} %</strong></div>` : "",
+        vertRate ? `<div class="analysis-chip">Aufstieg&ensp;<strong>${vertRate} m/h</strong></div>` : "",
+    ].filter(Boolean).join("");
+
+    // KM splits (running + trail)
+    let splitsHtml = "";
+    if (isRun && trackpoints.length > 10) {
+        const splits = calcKmSplits(trackpoints);
+        if (splits.length > 1) {
+            const avgSplit = splits.reduce((s, sp) => s + sp.splitSeconds, 0) / splits.length;
+            const rows = splits.map(sp => {
+                const diff = sp.splitSeconds - avgSplit;
+                const cls  = Math.abs(diff) < 5 ? "" : diff < 0 ? "split-fast" : "split-slow";
+                return `<td class="${cls}">${fmtDuration(sp.splitSeconds)}</td>`;
+            }).join("");
+            const heads = splits.map(sp => `<th>km ${sp.km}</th>`).join("");
+            splitsHtml = `<h3>km-Splits</h3>
+                <div class="splits-wrap">
+                    <table class="splits-table">
+                        <thead><tr>${heads}</tr></thead>
+                        <tbody><tr>${rows}</tr></tbody>
+                    </table>
+                </div>`;
+        }
+    }
+
+    return `<div class="activity-analysis">
+        <h3>Analyse</h3>
+        <div class="analysis-chips">${chips}</div>
+        ${compareHtml}
+    </div>
+    ${splitsHtml}`;
 }
 
 // --- Form page ---

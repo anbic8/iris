@@ -31,7 +31,7 @@ class Activity(Base):
 
     id               = Column(Integer, primary_key=True, autoincrement=True)
     user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    sport_type       = Column(SAEnum("running", "cycling", "hiking", "other"), nullable=False, default="other")
+    sport_type       = Column(SAEnum("running", "cycling", "hiking", "other", "trail"), nullable=False, default="other")
     start_time       = Column(DateTime, nullable=False)
     duration_s       = Column(Integer, nullable=False)
     distance_m       = Column(Numeric(10, 2), nullable=False)

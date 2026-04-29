@@ -214,6 +214,18 @@ select {
 .btn-delete { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: .35rem .6rem; border-radius: var(--radius); cursor: pointer; font-size: .9rem; }
 .btn-delete:hover { border-color: var(--error); color: var(--error); }
 
+/* --- Activity analysis --- */
+.activity-analysis { margin: .75rem 0 1rem; }
+.analysis-chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
+.analysis-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: .3rem .8rem; font-size: .85rem; white-space: nowrap; }
+.analysis-compare { font-size: .85rem; color: var(--muted); margin: .25rem 0 0; }
+.splits-wrap { overflow-x: auto; margin-bottom: 1.25rem; }
+.splits-table { border-collapse: collapse; font-size: .85rem; white-space: nowrap; }
+.splits-table th, .splits-table td { padding: .4rem .7rem; text-align: center; border: 1px solid var(--border); }
+.splits-table th { background: var(--bg); font-weight: 600; font-size: .78rem; color: var(--muted); }
+.split-fast { color: #2e7d32; font-weight: 600; }
+.split-slow { color: #c62828; }
+
 /* --- Notes --- */
 .notes-section { margin: 1rem 0; }
 .notes-input { width: 100%; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: var(--radius); font-size: .9rem; font-family: inherit; color: var(--text); background: var(--surface); resize: vertical; }

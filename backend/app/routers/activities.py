@@ -14,7 +14,7 @@ from app.models import Activity, Trackpoint, User
 from app.services.gpx_parser import parse_gpx
 from app.services.json_parser import parse_json_activity
 
-VALID_SPORT_TYPES = {"running", "cycling", "hiking", "other"}
+VALID_SPORT_TYPES = {"running", "cycling", "hiking", "other", "trail"}
 
 
 class ActivityUpdate(BaseModel):

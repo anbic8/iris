@@ -12,6 +12,10 @@ SPORT_TYPE_MAP = {
     "biking": "cycling",
     "hiking": "hiking",
     "walking": "hiking",
+    "trail": "trail",
+    "trail_running": "trail",
+    "trailrunning": "trail",
+    "mountain_running": "trail",
 }
 
 
