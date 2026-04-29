@@ -6,6 +6,8 @@ let _mapInstance  = null;
 let _hoverMarker  = null;
 
 const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0", trail: "#9b59b6" };
+const ZONE_COLORS  = { "Z1":"#93c47d","Z1-Z2":"#6db56d","Z2":"#6fa8dc","Z2-Z3":"#5590cc","Z3":"#ffd966","Z3-Z4":"#f7b84f","Z4":"#e06666","Z4-Z5":"#cc0000" };
+const GOAL_NAMES   = { base:"Grundlagenausdauer aufbauen","5k":"5 km Wettkampf","10k":"10 km Wettkampf", half:"Halbmarathon", marathon:"Marathon", health:"Gesundheit & Abnehmen", recovery:"Regeneration & Erholung" };
 const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges", trail: "Berglauf" };
 const SPORT_ICONS  = { running: "🏃", cycling: "🚴", hiking: "🥾", other: "🏅", trail: "⛰️" };
 const MONTHS = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
@@ -1142,6 +1144,7 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         else if (link.dataset.view === "prs")        loadPRs();
         else if (link.dataset.view === "map")        loadMapOverview();
         else if (link.dataset.view === "form")       loadForm();
+        else if (link.dataset.view === "plan")       loadPlan();
         else if (link.dataset.view === "settings")   loadSettings();
     });
 });
@@ -1394,6 +1397,175 @@ function generateAssessment(last, vo2max, monotony, user) {
         lines.push(`<strong>Trainingshinweis:</strong> Dein Monotonie-Index von ${monotony} ist erhöht. Wechsle öfter zwischen sehr leichten und intensiven Einheiten — das reduziert das Verletzungsrisiko und fördert die Anpassung.`);
 
     return lines;
+}
+
+// --- Training plan generator ---
+
+function buildSessionDescription(typeKey, goal, dur, paceStr) {
+    const d = {
+        easy:      `Lockerer Dauerlauf${paceStr}. Konversationstempo — du solltest problemlos sprechen können. Fördert die aerobe Basis und aktive Erholung.`,
+        long:      `Langer Ausdauerlauf${paceStr}. Wichtigste Einheit der Woche. Fokus auf gleichmäßige, ruhige Pace. Trainiert Fettstoffwechsel und mentale Stärke.`,
+        tempo:     `Tempodauerlauf${paceStr} im komfortablen Unbehagen. ${dur > 30 ? `10 min Einlaufen, ${dur - 20} min Tempo, 10 min Auslaufen.` : ""} Verbessert die Laktatschwelle.`,
+        threshold: `Schwellentraining${paceStr}. 2–3 × 10 min knapp unterhalb der anaeroben Schwelle mit je 3 min Pause. Aufwärmen + Auslaufen je 10 min einplanen.`,
+        intervals: goal === "5k"
+            ? `5 × 1 km Intervalle${paceStr} mit je 90 Sek. Trabpause. Steigert VO₂max direkt. Aufwärmen 15 min, Intervalle, Auslaufen 10 min.`
+            : `4 × 2 km Intervalle${paceStr} mit je 2 min Pause. Aufwärmen 15 min, Intervalle, Auslaufen 10 min. Pace gleichmäßig halten.`,
+        marathon:  `Marathontempolauf${paceStr}. Gewöhnt den Körper ans Zieltempo. Anstrengend aber kontrolliert — du solltest die Pace durchhalten können.`,
+        vlong:     `Sehr langer Lauf${paceStr} — Kerneinheit des Marathonaufbaus. Langsam starten, Verpflegung mitnehmen, nicht auf Zeit schauen.`,
+        recovery:  `Sehr lockerer Regenerationslauf${paceStr}. Ziel ist aktive Erholung, nicht Belastung. Bei starker Müdigkeit lieber komplett pausieren.`,
+    };
+    return d[typeKey] ?? "";
+}
+
+function generateTrainingPlan(goal, numWeeks, sessionsPerWeek) {
+    const series = calcFitnessSeries(allActivities, currentUser, 7);
+    const today  = series.at(-1) ?? { ctl: 30, atl: 30, tsb: 0 };
+    const vo2max = calcVo2max(allActivities);
+    const bounds = getZoneBoundaries(currentUser);
+    const maxHr  = estimateMaxHr(currentUser);
+    const ctl    = Math.max(5, today.ctl);
+    const scale  = Math.max(0.5, Math.min(1.7, ctl / 45));
+
+    const hrRange = z => {
+        const m = { "Z1":[0,bounds[0]], "Z1-Z2":[0,bounds[1]], "Z2":[bounds[0],bounds[1]],
+                    "Z2-Z3":[bounds[0],bounds[2]], "Z3":[bounds[1],bounds[2]],
+                    "Z3-Z4":[bounds[1],bounds[3]], "Z4":[bounds[2],bounds[3]], "Z4-Z5":[bounds[2],maxHr] };
+        return m[z] ?? [0, maxHr];
+    };
+    const paceRange = (lo, hi) => {
+        if (!vo2max) return null;
+        return [paceFromVo2pct(vo2max, hi), paceFromVo2pct(vo2max, lo)];
+    };
+
+    const SESSION_DEFS = {
+        easy:      { name:"Lockerer Dauerlauf",   zone:"Z2",    pLo:0.63, pHi:0.74, base:40  },
+        long:      { name:"Langer Lauf",          zone:"Z1-Z2", pLo:0.60, pHi:0.72, base:70  },
+        tempo:     { name:"Tempodauerlauf",       zone:"Z3",    pLo:0.75, pHi:0.83, base:40  },
+        threshold: { name:"Schwellentraining",    zone:"Z3-Z4", pLo:0.82, pHi:0.90, base:45  },
+        intervals: { name:"Intervalltraining",    zone:"Z4",    pLo:0.88, pHi:0.96, base:50  },
+        marathon:  { name:"Marathontempolauf",    zone:"Z2-Z3", pLo:0.75, pHi:0.84, base:55  },
+        vlong:     { name:"Sehr langer Lauf",     zone:"Z1-Z2", pLo:0.58, pHi:0.72, base:100 },
+        recovery:  { name:"Regenerationslauf",    zone:"Z1",    pLo:0.50, pHi:0.62, base:30  },
+    };
+    const GOAL_SESS = {
+        base:     ["long","tempo","easy"],
+        "5k":     ["intervals","easy","tempo"],
+        "10k":    ["tempo","intervals","long"],
+        half:     ["long","threshold","easy"],
+        marathon: ["vlong","marathon","easy"],
+        health:   ["easy","easy","easy"],
+        recovery: ["recovery","easy","recovery"],
+    };
+
+    const days   = sessionsPerWeek === 2 ? ["Mittwoch","Samstag"] : ["Dienstag","Donnerstag","Samstag"];
+    const types  = GOAL_SESS[goal].slice(0, sessionsPerWeek);
+
+    const phases =
+        numWeeks === 1 ? ["build"] :
+        numWeeks === 2 ? (today.tsb < -15 ? ["recovery","build"] : ["build","recovery"]) :
+        today.tsb < -15 ? ["recovery","build","build"] : ["build","build","recovery"];
+
+    const phaseLabel = (p, i) =>
+        p === "recovery" ? "Regenerationswoche" :
+        i === numWeeks - 1 && numWeeks > 2 ? "Peak / Tapering" : `Aufbauwoche ${i + 1}`;
+
+    return {
+        goal: GOAL_NAMES[goal], numWeeks, sessionsPerWeek, vo2max,
+        weeks: phases.map((phase, wi) => {
+            const lf = phase === "recovery" ? 0.72 : 1.0 + wi * 0.05;
+            return {
+                num: wi + 1, phase,
+                label: phaseLabel(phase, wi),
+                sessions: types.map((tk, si) => {
+                    const def = SESSION_DEFS[tk];
+                    const dur = Math.min(180, Math.max(20, Math.round(def.base * scale * lf)));
+                    const [hLo, hHi] = hrRange(def.zone);
+                    const p = paceRange(def.pLo, def.pHi);
+                    const pStr = p ? ` (${fmtPace(p[0])}–${fmtPace(p[1])} /km)` : "";
+                    return {
+                        day: days[si], name: def.name, zone: def.zone, durationMin: dur,
+                        hrLo: Math.round(hLo), hrHi: Math.round(hHi),
+                        paceLo: p?.[0] ?? null, paceHi: p?.[1] ?? null,
+                        description: buildSessionDescription(tk, goal, dur, pStr),
+                    };
+                }),
+            };
+        }),
+    };
+}
+
+function renderPlan(plan) {
+    const weekHtml = plan.weeks.map(week => `
+        <div class="plan-week">
+            <div class="plan-week-header">
+                <span class="plan-week-label">${week.label}</span>
+                <span class="plan-week-num muted">Woche ${week.num} / ${plan.numWeeks}</span>
+            </div>
+            <div class="plan-sessions">
+                ${week.sessions.map(s => {
+                    const col = ZONE_COLORS[s.zone] ?? "#888";
+                    const metrics = [
+                        s.hrLo && s.hrHi ? `💓 ${s.hrLo}–${s.hrHi} bpm` : "",
+                        s.paceLo && s.paceHi ? `🏃 ${fmtPace(s.paceLo)}–${fmtPace(s.paceHi)} /km` : "",
+                    ].filter(Boolean).join("  ·  ");
+                    return `<div class="plan-session" style="border-left-color:${col}">
+                        <div class="plan-day">${s.day}</div>
+                        <div class="plan-name">${s.name}</div>
+                        <div class="plan-zone-dur"><span class="plan-zone" style="background:${col}22;color:${col}">${s.zone}</span> ${s.durationMin} min</div>
+                        ${metrics ? `<div class="plan-metrics">${metrics}</div>` : ""}
+                        <p class="plan-desc">${s.description}</p>
+                    </div>`;
+                }).join("")}
+            </div>
+        </div>`).join("");
+
+    const noVo2 = !plan.vo2max ? `<p class="pr-hint">Tempo-Angaben fehlen, da noch keine Laufaktivitäten mit Pace-Daten vorhanden sind.</p>` : "";
+    return `<div class="plan-output-header">${plan.goal} · ${plan.numWeeks} Woche${plan.numWeeks>1?"n":""} · ${plan.sessionsPerWeek} Einheiten/Woche</div>
+        ${noVo2}${weekHtml}`;
+}
+
+function loadPlan() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    content.innerHTML = `
+        <h2>Trainingsplan</h2>
+        <div class="plan-form">
+            <label class="settings-label">Trainingsziel
+                <select id="plan-goal">
+                    <option value="base">Grundlagenausdauer aufbauen</option>
+                    <option value="5k">5 km Wettkampf</option>
+                    <option value="10k" selected>10 km Wettkampf</option>
+                    <option value="half">Halbmarathon</option>
+                    <option value="marathon">Marathon</option>
+                    <option value="health">Gesundheit &amp; Abnehmen</option>
+                    <option value="recovery">Regeneration &amp; Erholung</option>
+                </select>
+            </label>
+            <label class="settings-label">Dauer
+                <select id="plan-weeks">
+                    <option value="1">1 Woche</option>
+                    <option value="2" selected>2 Wochen</option>
+                    <option value="3">3 Wochen</option>
+                </select>
+            </label>
+            <label class="settings-label">Einheiten/Woche
+                <select id="plan-sessions">
+                    <option value="2">2 Einheiten</option>
+                    <option value="3" selected>3 Einheiten</option>
+                </select>
+            </label>
+            <button id="plan-btn" class="btn-primary" style="align-self:flex-end">Plan erstellen</button>
+        </div>
+        <div id="plan-output"></div>
+    `;
+    const generate = () => {
+        const goal    = document.getElementById("plan-goal").value;
+        const weeks   = parseInt(document.getElementById("plan-weeks").value);
+        const sessions= parseInt(document.getElementById("plan-sessions").value);
+        document.getElementById("plan-output").innerHTML = renderPlan(generateTrainingPlan(goal, weeks, sessions));
+    };
+    document.getElementById("plan-btn").addEventListener("click", generate);
+    generate();
 }
 
 // --- Form page ---

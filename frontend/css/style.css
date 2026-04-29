@@ -250,6 +250,22 @@ select {
 /* --- Season divider --- */
 .season-divider { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid var(--border); }
 
+/* --- Training plan --- */
+.plan-form { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; background: var(--surface); padding: 1rem; border-radius: var(--radius); box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 1.5rem; }
+.plan-form .settings-label { min-width: 150px; }
+.plan-output-header { font-size: .9rem; color: var(--muted); margin-bottom: 1.25rem; font-weight: 600; }
+.plan-week { margin-bottom: 2rem; }
+.plan-week-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .75rem; border-bottom: 2px solid var(--border); padding-bottom: .4rem; }
+.plan-week-label { font-size: 1rem; font-weight: 700; }
+.plan-sessions { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+.plan-session { background: var(--surface); border-radius: var(--radius); padding: 1rem 1rem 1rem 1.1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); border-left: 4px solid #888; }
+.plan-day { font-size: .75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .2rem; }
+.plan-name { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+.plan-zone-dur { display: flex; align-items: center; gap: .5rem; font-size: .88rem; margin-bottom: .35rem; }
+.plan-zone { padding: .15rem .55rem; border-radius: 20px; font-size: .78rem; font-weight: 700; }
+.plan-metrics { font-size: .85rem; font-weight: 600; color: var(--emphasis); margin-bottom: .5rem; }
+.plan-desc { font-size: .82rem; color: var(--muted); line-height: 1.55; margin: 0; }
+
 /* --- Form page --- */
 .form-status-bar { padding: .65rem 1rem; border-left: 4px solid; border-radius: 0 var(--radius) var(--radius) 0; background: var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.08); margin: .75rem 0 1.5rem; font-size: .9rem; }
 .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
@@ -334,6 +350,10 @@ select {
 
     /* Form page */
     .form-grid-2 { grid-template-columns: 1fr; }
+
+    /* Plan page */
+    .plan-form { flex-direction: column; }
+    .plan-sessions { grid-template-columns: 1fr; }
 
     /* Settings */
     .settings-form { max-width: 100%; }
