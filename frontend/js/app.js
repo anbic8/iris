@@ -1336,6 +1336,66 @@ function renderActivityAnalysis(activity, trackpoints) {
     ${splitsHtml}`;
 }
 
+// --- Form assessment helpers ---
+
+function classifyVo2max(vo2max, user) {
+    if (!vo2max) return null;
+    const age    = user.birth_year ? new Date().getFullYear() - user.birth_year : null;
+    const female = user.gender === "female";
+    // Thresholds: [poor, fair, good, excellent] upper bounds per age bracket
+    const t = female ? {
+        young: [24, 31, 38, 48], "30s": [22, 30, 37, 44],
+        "40s": [20, 27, 33, 42], "50s": [17, 24, 31, 39], "60plus": [15, 22, 29, 36],
+    } : {
+        young: [33, 40, 48, 56], "30s": [32, 39, 47, 54],
+        "40s": [31, 37, 44, 52], "50s": [26, 33, 40, 48], "60plus": [21, 28, 35, 43],
+    };
+    const bracket = !age || age < 30 ? "young" : age < 40 ? "30s" : age < 50 ? "40s" : age < 60 ? "50s" : "60plus";
+    const [p, f, g, e] = t[bracket];
+    if (vo2max <= p) return { label: "Unterdurchschnittlich", color: "#e06666", ref: `Referenz ≤ ${p}` };
+    if (vo2max <= f) return { label: "Ausreichend",           color: "#f7b84f", ref: `Referenz ${p+1}–${f}` };
+    if (vo2max <= g) return { label: "Gut",                   color: "#93c47d", ref: `Referenz ${f+1}–${g}` };
+    if (vo2max <= e) return { label: "Sehr gut",              color: "#4f8ef7", ref: `Referenz ${g+1}–${e}` };
+    return               { label: "Hervorragend",             color: "#9b59b6", ref: `Referenz > ${e}` };
+}
+
+function generateAssessment(last, vo2max, monotony, user) {
+    const age = user.birth_year ? new Date().getFullYear() - user.birth_year : null;
+    const ctl = Math.round(last.ctl);
+    const tsb = Math.round(last.tsb);
+    const isFemale = user.gender === "female";
+    const lines = [];
+
+    // VO2max
+    if (vo2max) {
+        const cls = classifyVo2max(vo2max, user);
+        const ageStr = age ? ` für ${isFemale ? "eine" : "einen"} ${age}-Jährige${isFemale ? "" : "n"}` : "";
+        lines.push(`Dein geschätzter VO₂max von <strong>${vo2max} ml/kg/min</strong> ist${ageStr} <strong style="color:${cls.color}">${cls.label}</strong> (${cls.ref} ml/kg/min).`);
+    }
+
+    // CTL / fitness level
+    const ctlDesc =
+        ctl < 15 ? ["gelegentlich aktiv", "Du trainierst unregelmäßig — selbst kurze wöchentliche Einheiten würden deinen Wert merklich steigern."] :
+        ctl < 30 ? ["regelmäßig aktiv",   "Du trainierst regelmäßig. Für Wettkampf-Ambitionen wäre mehr Volumen hilfreich."] :
+        ctl < 50 ? ["ambitionierter Freizeitläufer", "Solides Trainingsniveau. Gut geeignet für 5–10 km Wettkämpfe."] :
+        ctl < 70 ? ["leistungsorientierter Läufer",  "Du trainierst auf einem hohen Niveau — Halbmarathon und Marathon sind in Reichweite."] :
+        ctl < 90 ? ["intensiver Wettkampfläufer",     "Sehr hohes Trainingsvolumen. Achte auf ausreichend Regeneration."] :
+                   ["Hochleistungsathlet",             "Trainingsbelastung auf Elite-Niveau. Professionelle Periodisierung empfohlen."];
+    lines.push(`Mit einem Fitness-Index (CTL) von <strong>${ctl}</strong> bist du ein <strong>${ctlDesc[0]}</strong>. ${ctlDesc[1]}`);
+
+    // TSB comment
+    if (tsb < -25)
+        lines.push(`<strong>Hinweis:</strong> Deine aktuelle Ermüdung ist sehr hoch (TSB ${tsb}). Eine gezielte Regenerationswoche mit leichten Einheiten wäre jetzt sinnvoll, um Überlastungsverletzungen vorzubeugen.`);
+    else if (tsb > 20)
+        lines.push(`<strong>Hinweis:</strong> Du bist sehr gut erholt (TSB ${tsb}). Falls ein Wettkampf ansteht — jetzt ist die ideale Zeit, alles zu geben.`);
+
+    // Monotony
+    if (monotony > 1.5)
+        lines.push(`<strong>Trainingshinweis:</strong> Dein Monotonie-Index von ${monotony} ist erhöht. Wechsle öfter zwischen sehr leichten und intensiven Einheiten — das reduziert das Verletzungsrisiko und fördert die Anpassung.`);
+
+    return lines;
+}
+
 // --- Form page ---
 async function loadForm() {
     destroyCharts();
@@ -1414,19 +1474,26 @@ async function loadForm() {
             <div class="stat-card">
                 <div class="stat-value">${Math.round(last.ctl)}</div>
                 <div class="stat-label">CTL – Fitness</div>
+                <div class="stat-desc">42-Tage-Ø TRIMP</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value">${Math.round(last.atl)}</div>
                 <div class="stat-label">ATL – Ermüdung</div>
+                <div class="stat-desc">7-Tage-Ø TRIMP</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value ${tsbClass}" style="color:${tsbColor}">${Math.round(tsb)}</div>
                 <div class="stat-label">TSB – Form</div>
+                <div class="stat-desc">CTL − ATL · +gut / −müde</div>
             </div>
-            ${vo2max ? `<div class="stat-card">
-                <div class="stat-value">${vo2max}</div>
-                <div class="stat-label">VO₂max (ml/kg/min)</div>
-            </div>` : ""}
+            ${vo2max ? (() => {
+                const cls = classifyVo2max(vo2max, currentUser);
+                return `<div class="stat-card">
+                    <div class="stat-value">${vo2max}</div>
+                    <div class="stat-label">VO₂max (ml/kg/min)</div>
+                    <div class="stat-desc" style="color:${cls.color};font-weight:600">${cls.label}</div>
+                </div>`;
+            })() : ""}
         </div>
 
         <div class="form-status-bar" style="border-left-color:${tsbColor}">
@@ -1448,6 +1515,15 @@ async function loadForm() {
                 </div>
                 <p class="form-rec-text">${rec.text}</p>
                 ${extras ? `<p class="form-rec-details">${extras}</p>` : ""}
+            </div>`;
+        })()}
+
+        ${(() => {
+            const lines = generateAssessment(last, vo2max, monotony, currentUser);
+            if (!lines.length) return "";
+            return `<div class="form-assessment">
+                <h3>Persönliche Einschätzung</h3>
+                ${lines.map(l => `<p>${l}</p>`).join("")}
             </div>`;
         })()}
 
@@ -1497,6 +1573,18 @@ async function loadForm() {
                         <strong>Strain</strong> = Wochen-TRIMP × Monotonie.
                     </p>
                 </div>
+            </div>
+        </div>
+
+        <div class="form-legend">
+            <h3>Erklärung der Kennzahlen</h3>
+            <div class="legend-grid">
+                <div class="legend-item"><span class="legend-key">TRIMP</span><span class="legend-val">Training Impulse – Belastungspunkte einer Einheit, berechnet aus Herzfrequenz × Dauer (Banister-Formel). Je höher, desto intensiver die Einheit.</span></div>
+                <div class="legend-item"><span class="legend-key">CTL</span><span class="legend-val">Chronic Training Load – 42-Tage exponentieller Ø der täglichen TRIMP-Werte. Repräsentiert deine langfristige Fitness. Steigt langsam durch konsequentes Training.</span></div>
+                <div class="legend-item"><span class="legend-key">ATL</span><span class="legend-val">Acute Training Load – 7-Tage exponentieller Ø. Reagiert schnell auf Training und Pausen. Hohe ATL bedeutet viel Training in der letzten Woche.</span></div>
+                <div class="legend-item"><span class="legend-key">TSB</span><span class="legend-val">Training Stress Balance = CTL − ATL. Positiver Wert: ausgeruht und in Form. Negativer Wert: ermüdet. Optimales Wettkampffenster: +5 bis +25.</span></div>
+                <div class="legend-item"><span class="legend-key">VO₂max</span><span class="legend-val">Maximale Sauerstoffaufnahme in ml/kg/min. Schätzung aus Lauf-Pace und Dauer (Jack Daniels VDOT). Wichtigster Indikator der aeroben Leistungsfähigkeit.</span></div>
+                <div class="legend-item"><span class="legend-key">Monotonie</span><span class="legend-val">Verhältnis von Ø-Belastung zu deren Schwankung. Zu gleichmäßiges Training (ohne leichte Tage) erhöht das Verletzungsrisiko.</span></div>
             </div>
         </div>
     `;
