@@ -190,6 +190,7 @@ function predictRaceTime(vo2max, distKm) {
 function calcFitnessSeries(acts, user, lookbackDays = 180) {
     const daily = {};
     for (const a of acts) {
+        if (!a.start_time) continue;
         const key = a.start_time.slice(0, 10);
         daily[key] = (daily[key] || 0) + calcTrimp(a, user);
     }
@@ -1169,7 +1170,7 @@ async function loadForm() {
     const content = document.getElementById("content");
     content.innerHTML = `<h2>Trainingsform</h2><p class="muted">Berechne…</p>`;
     await new Promise(r => setTimeout(r, 0));
-
+    try {
     if (!currentUser.max_hr && !currentUser.birth_year) {
         content.innerHTML = `<h2>Trainingsform</h2>
             <p class="muted">Bitte zuerst <strong>Maximalpuls</strong> oder <strong>Geburtsjahr</strong> in den Einstellungen hinterlegen.</p>`;
@@ -1363,6 +1364,10 @@ async function loadForm() {
     } else {
         document.getElementById("chart-form-zones")?.closest(".chart-box")?.insertAdjacentHTML("afterend", "<p class='muted'>Keine HR-Daten in den letzten 90 Tagen.</p>");
     }
+    } catch (e) {
+        content.innerHTML = `<h2>Trainingsform</h2><p class="error">Fehler beim Berechnen: ${escapeHtml(e.message)}</p>`;
+        console.error(e);
+    }
 }
 
 // --- Settings ---
@@ -1454,18 +1459,22 @@ function loadSettings() {
         if (!name) return;
         const resting_hr = parseInt(document.getElementById("profile-resting-hr").value) || null;
         const gender     = document.getElementById("profile-gender").value;
-        await request("PATCH", "/users/me", {
-            name,
-            birth_year: parseInt(document.getElementById("profile-birth").value) || null,
-            weight_kg:  parseFloat(document.getElementById("profile-weight").value) || null,
-            resting_hr,
-            gender,
-        });
-        currentUser.name       = name;
-        currentUser.resting_hr = resting_hr;
-        currentUser.gender     = gender;
-        document.getElementById("nav-user").textContent = name;
-        flash("profile-msg");
+        try {
+            await request("PATCH", "/users/me", {
+                name,
+                birth_year: parseInt(document.getElementById("profile-birth").value) || null,
+                weight_kg:  parseFloat(document.getElementById("profile-weight").value) || null,
+                resting_hr,
+                gender,
+            });
+            currentUser.name       = name;
+            currentUser.resting_hr = resting_hr;
+            currentUser.gender     = gender;
+            document.getElementById("nav-user").textContent = name;
+            flash("profile-msg");
+        } catch (e) {
+            flash("profile-msg", e.message, true);
+        }
     });
 
     document.getElementById("save-pw-btn").addEventListener("click", async () => {
