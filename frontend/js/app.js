@@ -99,6 +99,174 @@ function mkChart(id, config) {
     chartInstances.push(new Chart(ctx.getContext("2d"), config));
 }
 
+// --- Training load / Form calculations ---
+
+function getISOWeek(d) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day  = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+}
+
+function estimateMaxHr(user) {
+    if (user.max_hr) return user.max_hr;
+    if (user.birth_year) return Math.max(150, 220 - (new Date().getFullYear() - user.birth_year));
+    return 180;
+}
+
+function estimateHrFromPace(paceMinKm, maxHr) {
+    // 3 min/km → ~95% HRmax, 9 min/km → ~55% HRmax (linear)
+    const pct = Math.max(0.55, Math.min(0.95, 0.95 - (paceMinKm - 3.0) / 6.0 * 0.40));
+    return Math.round(maxHr * pct);
+}
+
+function getZoneBoundaries(user) {
+    const maxHr = estimateMaxHr(user);
+    if (user.hr_zones && user.hr_zones.length >= 4) return user.hr_zones;
+    return [0.60, 0.70, 0.80, 0.90].map(p => Math.round(maxHr * p));
+}
+
+function calcTrimp(act, user) {
+    const maxHr   = estimateMaxHr(user);
+    const restHr  = user.resting_hr || 60;
+    const gender  = user.gender || "male";
+    const durMin  = act.duration_s / 60;
+    let avgHr = act.avg_hr;
+    if (!avgHr && act.avg_pace) avgHr = estimateHrFromPace(act.avg_pace, maxHr);
+    if (!avgHr) return durMin * 0.5;
+    const ratio = Math.max(0, Math.min(1, (avgHr - restHr) / Math.max(1, maxHr - restHr)));
+    return gender === "female"
+        ? durMin * ratio * 0.86 * Math.exp(1.67 * ratio)
+        : durMin * ratio * 0.64 * Math.exp(1.92 * ratio);
+}
+
+function calcVo2(act) {
+    if (!act.avg_pace || !act.duration_s || act.sport_type !== "running") return null;
+    const v = 1000 / act.avg_pace;        // m/min
+    const t = act.duration_s / 60;        // minutes
+    if (t < 8 || v < 80) return null;
+    const vo2    = -4.60 + 0.182258 * v + 0.000104 * v * v;
+    const pctMax = 0.8 + 0.1894393 * Math.exp(-0.012778 * t) + 0.2989558 * Math.exp(-0.1932605 * t);
+    if (pctMax <= 0) return null;
+    const est = vo2 / pctMax;
+    return est > 20 && est < 90 ? est : null;
+}
+
+function calcVo2max(acts) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 180);
+    let best = null;
+    // prefer last 180 days, fall back to all-time
+    for (const a of acts) {
+        const v = calcVo2(a);
+        if (!v) continue;
+        if (!best || v > best.v) best = { v, recent: new Date(a.start_time) >= cutoff };
+    }
+    if (!best) return null;
+    if (!best.recent) {
+        // try all-time best
+        for (const a of acts) {
+            const v = calcVo2(a);
+            if (v && (!best || v > best.v)) best = { v, recent: false };
+        }
+    }
+    return best ? Math.round(best.v * 10) / 10 : null;
+}
+
+function predictRaceTime(vo2max, distKm) {
+    if (!vo2max || vo2max < 20) return null;
+    let lo = 1, hi = 600;
+    for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        const v   = distKm * 1000 / mid;
+        const req = -4.60 + 0.182258 * v + 0.000104 * v * v;
+        const pct = 0.8 + 0.1894393 * Math.exp(-0.012778 * mid) + 0.2989558 * Math.exp(-0.1932605 * mid);
+        if (vo2max * pct > req) hi = mid; else lo = mid;
+    }
+    return Math.round((lo + hi) / 2 * 60);
+}
+
+function calcFitnessSeries(acts, user, lookbackDays = 180) {
+    const daily = {};
+    for (const a of acts) {
+        const key = a.start_time.slice(0, 10);
+        daily[key] = (daily[key] || 0) + calcTrimp(a, user);
+    }
+    const kAtl = 1 - Math.exp(-1 / 7);
+    const kCtl = 1 - Math.exp(-1 / 42);
+    let atl = 0, ctl = 0;
+    const end  = new Date();
+    const from = new Date(end.getTime() - (lookbackDays + 42) * 86400000);
+    const out  = [];
+    const cur  = new Date(from);
+    while (cur <= end) {
+        const key   = cur.toISOString().slice(0, 10);
+        const trimp = daily[key] || 0;
+        const tsb   = ctl - atl;
+        atl = atl + (trimp - atl) * kAtl;
+        ctl = ctl + (trimp - ctl) * kCtl;
+        if (cur >= new Date(end.getTime() - lookbackDays * 86400000)) {
+            out.push({ date: key, atl, ctl, tsb, trimp });
+        }
+        cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+}
+
+function calcWeeklyTrimp(acts, user, weeksBack = 20) {
+    const weekly = {};
+    for (const a of acts) {
+        const d  = new Date(a.start_time);
+        const wk = `${d.getFullYear()}-W${String(getISOWeek(d)).padStart(2, "0")}`;
+        weekly[wk] = (weekly[wk] || 0) + calcTrimp(a, user);
+    }
+    const result = [];
+    const now = new Date();
+    for (let i = weeksBack - 1; i >= 0; i--) {
+        const d  = new Date(now.getTime() - i * 7 * 86400000);
+        const wk = `${d.getFullYear()}-W${String(getISOWeek(d)).padStart(2, "0")}`;
+        // label as "DD.MM"
+        const mon = new Date(d.getTime() - ((d.getDay() || 7) - 1) * 86400000);
+        const lbl = `${String(mon.getDate()).padStart(2,"0")}.${String(mon.getMonth()+1).padStart(2,"0")}`;
+        result.push({ week: wk, label: lbl, trimp: Math.round(weekly[wk] || 0) });
+    }
+    return result;
+}
+
+function calcZoneDistForm(acts, user, days = 90) {
+    const bounds  = getZoneBoundaries(user);
+    const cutoff  = new Date(Date.now() - days * 86400000);
+    const dist    = [0, 0, 0, 0, 0];
+    for (const a of acts) {
+        if (new Date(a.start_time) < cutoff || !a.avg_hr || !a.duration_s) continue;
+        const hr = a.avg_hr;
+        const z  = hr < bounds[0] ? 0 : hr < bounds[1] ? 1 : hr < bounds[2] ? 2 : hr < bounds[3] ? 3 : 4;
+        dist[z] += a.duration_s;
+    }
+    return dist;
+}
+
+function calcMonotony(acts, user, days = 28) {
+    const cutoff = new Date(Date.now() - days * 86400000);
+    const daily  = {};
+    for (const a of acts) {
+        if (new Date(a.start_time) < cutoff) continue;
+        const key = a.start_time.slice(0, 10);
+        daily[key] = (daily[key] || 0) + calcTrimp(a, user);
+    }
+    const values = [];
+    const cur    = new Date(cutoff);
+    while (cur <= new Date()) {
+        values.push(daily[cur.toISOString().slice(0, 10)] || 0);
+        cur.setDate(cur.getDate() + 1);
+    }
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const std  = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
+    const mono = std > 0 ? Math.round((mean / std) * 100) / 100 : 0;
+    return { monotony: mono, strain: Math.round(values.reduce((a, b) => a + b, 0) * mono) };
+}
+
 // --- Geo / trackpoint math ---
 function haversineKm(lat1, lon1, lat2, lon2) {
     const R = 6371;
@@ -927,10 +1095,11 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
     link.addEventListener("click", (e) => {
         e.preventDefault();
         document.querySelector(".nav-links").classList.remove("open");
-        if (link.dataset.view === "dashboard")  loadDashboard();
+        if (link.dataset.view === "dashboard")       loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
         else if (link.dataset.view === "prs")        loadPRs();
         else if (link.dataset.view === "map")        loadMapOverview();
+        else if (link.dataset.view === "form")       loadForm();
         else if (link.dataset.view === "settings")   loadSettings();
     });
 });
@@ -994,6 +1163,208 @@ async function loadMapOverview() {
     });
 }
 
+// --- Form page ---
+async function loadForm() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    content.innerHTML = `<h2>Trainingsform</h2><p class="muted">Berechne…</p>`;
+    await new Promise(r => setTimeout(r, 0));
+
+    if (!currentUser.max_hr && !currentUser.birth_year) {
+        content.innerHTML = `<h2>Trainingsform</h2>
+            <p class="muted">Bitte zuerst <strong>Maximalpuls</strong> oder <strong>Geburtsjahr</strong> in den Einstellungen hinterlegen.</p>`;
+        return;
+    }
+
+    const series       = calcFitnessSeries(allActivities, currentUser, 180);
+    const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
+    const vo2max       = calcVo2max(allActivities);
+    const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
+    const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
+    const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
+
+    const RACE_DISTS = [
+        {label:"1 km",km:1},{label:"3 km",km:3},{label:"5 km",km:5},
+        {label:"10 km",km:10},{label:"Halbmarathon",km:21.095},{label:"Marathon",km:42.195},
+    ];
+    const predictions = RACE_DISTS.map(d => ({
+        ...d, time_s: predictRaceTime(vo2max, d.km)
+    }));
+
+    // TSB status
+    const tsb = last.tsb;
+    const [tsbLabel, tsbClass, tsbColor] =
+        tsb > 25  ? ["Overtapered",     "tsb-neutral",  "#9ca3af"] :
+        tsb > 5   ? ["Wettkampfform ✓", "tsb-optimal",  "#2e7d32"] :
+        tsb > -5  ? ["Erhaltung",        "tsb-neutral",  "#f59e0b"] :
+        tsb > -25 ? ["Aufbauphase",      "tsb-build",    "#ea580c"] :
+                    ["Überbelastung ⚠",  "tsb-over",     "var(--error)"];
+
+    // Days until TSB reaches +5 (full rest projection)
+    let daysToForm = null;
+    if (tsb < 5) {
+        let sAtl = last.atl, sCkl = last.ctl;
+        const ka = 1 - Math.exp(-1/7), kc = 1 - Math.exp(-1/42);
+        for (let d = 1; d <= 60; d++) {
+            sAtl += (0 - sAtl) * ka; sCkl += (0 - sCkl) * kc;
+            if (sCkl - sAtl >= 5) { daysToForm = d; break; }
+        }
+    }
+
+    const predRows = predictions.map(p => {
+        if (!p.time_s) return "";
+        const pace = (p.time_s / 60) / p.km;
+        return `<tr><td>${p.label}</td><td><strong>${fmtSeconds(p.time_s)}</strong></td><td>${fmtPace(pace)} /km</td></tr>`;
+    }).join("");
+
+    content.innerHTML = `
+        <h2>Trainingsform</h2>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">${Math.round(last.ctl)}</div>
+                <div class="stat-label">CTL – Fitness</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${Math.round(last.atl)}</div>
+                <div class="stat-label">ATL – Ermüdung</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value ${tsbClass}" style="color:${tsbColor}">${Math.round(tsb)}</div>
+                <div class="stat-label">TSB – Form</div>
+            </div>
+            ${vo2max ? `<div class="stat-card">
+                <div class="stat-value">${vo2max}</div>
+                <div class="stat-label">VO₂max (ml/kg/min)</div>
+            </div>` : ""}
+        </div>
+
+        <div class="form-status-bar" style="border-left-color:${tsbColor}">
+            <strong style="color:${tsbColor}">${tsbLabel}</strong>
+            ${tsb > 5 && tsb <= 25 ? " · Guter Zeitpunkt für einen Wettkampf." : ""}
+            ${daysToForm ? ` · Bei vollständiger Regeneration in ca. <strong>${daysToForm} Tagen</strong> in Wettkampfform.` : ""}
+        </div>
+
+        <div class="form-grid-2">
+            <div>
+                <h3>CTL / ATL / TSB – Verlauf (180 Tage)</h3>
+                <div class="chart-box"><canvas id="chart-fitness"></canvas></div>
+            </div>
+            <div>
+                <h3>Wöchentlicher TRIMP (20 Wochen)</h3>
+                <div class="chart-box"><canvas id="chart-weekly-trimp"></canvas></div>
+            </div>
+        </div>
+
+        ${vo2max ? `
+        <h3>Rennprognosen · VO₂max ${vo2max} ml/kg/min</h3>
+        <div class="pr-table-wrap">
+            <table class="pr-table">
+                <thead><tr><th>Distanz</th><th>Prognose</th><th>Pace</th></tr></thead>
+                <tbody>${predRows}</tbody>
+            </table>
+        </div>
+        <p class="pr-hint" style="margin-bottom:1.5rem">Berechnet nach Jack Daniels (VDOT). Basiert auf der besten VO₂max-Schätzung der letzten 180 Tage.</p>
+        ` : `<p class="muted" style="margin:1rem 0">Für Rennprognosen werden Laufaktivitäten mit Pace-Daten benötigt.</p>`}
+
+        <div class="form-grid-2">
+            <div>
+                <h3>HR-Zonenverteilung (letzte 90 Tage)</h3>
+                <div class="chart-box chart-box--zones"><canvas id="chart-form-zones"></canvas></div>
+            </div>
+            <div>
+                <h3>Trainingsmonotonie (28 Tage)</h3>
+                <div class="form-monotony">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value ${monotony > 1.5 ? "text-warn" : ""}">${monotony}</div>
+                            <div class="stat-label">Monotonie-Index</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${strain}</div>
+                            <div class="stat-label">Strain</div>
+                        </div>
+                    </div>
+                    <p class="form-hint">
+                        <strong>Monotonie</strong> = Ø TRIMP/Tag ÷ Standardabweichung.<br>
+                        &lt; 1,0 gute Variation · 1,0–1,5 akzeptabel · &gt; 1,5 zu monoton.<br>
+                        <strong>Strain</strong> = Wochen-TRIMP × Monotonie.
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Fitness chart
+    const downsample = (arr, n) => arr.filter((_, i) => i % Math.max(1, Math.floor(arr.length / n)) === 0 || i === arr.length - 1);
+    const ds = downsample(series, 180);
+    mkChart("chart-fitness", {
+        type: "line",
+        data: {
+            labels: ds.map(d => d.date),
+            datasets: [
+                { label: "CTL Fitness",  data: ds.map(d => Math.round(d.ctl)), borderColor: "#4f8ef7", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                { label: "ATL Ermüdung", data: ds.map(d => Math.round(d.atl)), borderColor: "#e06666", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.3 },
+                { label: "TSB Form",     data: ds.map(d => Math.round(d.tsb)), borderColor: "#93c47d", backgroundColor: "rgba(147,196,125,0.15)", borderWidth: 2, pointRadius: 0, tension: 0.3, fill: true },
+            ],
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { position: "top" }, tooltip: { callbacks: {
+                title: items => items[0].label,
+            }}},
+            scales: {
+                x: { ticks: { maxTicksLimit: 8 } },
+                y: { title: { display: true, text: "Trainingslast" } },
+            },
+        },
+    });
+
+    // Weekly TRIMP chart
+    mkChart("chart-weekly-trimp", {
+        type: "bar",
+        data: {
+            labels: weekly.map(w => w.label),
+            datasets: [{ label: "TRIMP", data: weekly.map(w => w.trimp), backgroundColor: "#4f8ef7", borderRadius: 3 }],
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { maxTicksLimit: 10 } },
+                y: { title: { display: true, text: "TRIMP" }, beginAtZero: true },
+            },
+        },
+    });
+
+    // Zone donut (reuse existing HR zone colors)
+    const zoneColors = ["#93c47d","#6fa8dc","#ffd966","#e06666","#cc0000"];
+    const zoneLabels = ["Z1 Regeneration","Z2 Grundlage","Z3 Tempo","Z4 Schwelle","Z5 Maximal"];
+    const zoneTotal  = zoneDist.reduce((a, b) => a + b, 0);
+    if (zoneTotal > 0) {
+        mkChart("chart-form-zones", {
+            type: "doughnut",
+            data: {
+                labels: zoneLabels,
+                datasets: [{ data: zoneDist, backgroundColor: zoneColors, borderWidth: 1 }],
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: "right" },
+                    tooltip: { callbacks: { label: ctx => {
+                        const s = ctx.raw;
+                        const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+                        return ` ${ctx.label}: ${h}h ${m}min (${Math.round(s/zoneTotal*100)}%)`;
+                    }}},
+                },
+            },
+        });
+    } else {
+        document.getElementById("chart-form-zones")?.closest(".chart-box")?.insertAdjacentHTML("afterend", "<p class='muted'>Keine HR-Daten in den letzten 90 Tagen.</p>");
+    }
+}
+
 // --- Settings ---
 function loadSettings() {
     destroyCharts();
@@ -1028,7 +1399,15 @@ function loadSettings() {
             <div class="zones-grid">
                 <label class="settings-label">Geburtsjahr<input type="number" id="profile-birth" min="1900" max="2025" value="${u.birth_year ?? ""}" placeholder="z.B. 1990"></label>
                 <label class="settings-label">Gewicht (kg)<input type="number" id="profile-weight" min="30" max="250" step="0.1" value="${u.weight_kg ?? ""}" placeholder="z.B. 70"></label>
+                <label class="settings-label">Ruhepuls (bpm)<input type="number" id="profile-resting-hr" min="30" max="100" value="${u.resting_hr ?? ""}" placeholder="z.B. 55"></label>
+                <label class="settings-label">Geschlecht
+                    <select id="profile-gender">
+                        <option value="male"${(u.gender ?? "male") === "male" ? " selected" : ""}>Männlich</option>
+                        <option value="female"${u.gender === "female" ? " selected" : ""}>Weiblich</option>
+                    </select>
+                </label>
             </div>
+            <p class="settings-hint">Ruhepuls und Geschlecht werden für die TRIMP-Berechnung auf der Form-Seite verwendet.</p>
             <button id="save-profile-btn" class="btn-primary">Profil speichern</button>
             <span id="profile-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
@@ -1073,12 +1452,18 @@ function loadSettings() {
     document.getElementById("save-profile-btn").addEventListener("click", async () => {
         const name = document.getElementById("profile-name").value.trim();
         if (!name) return;
+        const resting_hr = parseInt(document.getElementById("profile-resting-hr").value) || null;
+        const gender     = document.getElementById("profile-gender").value;
         await request("PATCH", "/users/me", {
             name,
             birth_year: parseInt(document.getElementById("profile-birth").value) || null,
             weight_kg:  parseFloat(document.getElementById("profile-weight").value) || null,
+            resting_hr,
+            gender,
         });
-        currentUser.name = name;
+        currentUser.name       = name;
+        currentUser.resting_hr = resting_hr;
+        currentUser.gender     = gender;
         document.getElementById("nav-user").textContent = name;
         flash("profile-msg");
     });

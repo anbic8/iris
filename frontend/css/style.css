@@ -238,6 +238,17 @@ select {
 /* --- Season divider --- */
 .season-divider { margin-top: 2rem; padding-top: 1.5rem; border-top: 2px solid var(--border); }
 
+/* --- Form page --- */
+.form-status-bar { padding: .65rem 1rem; border-left: 4px solid; border-radius: 0 var(--radius) var(--radius) 0; background: var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.08); margin: .75rem 0 1.5rem; font-size: .9rem; }
+.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
+.form-monotony { background: var(--surface); border-radius: var(--radius); padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.form-hint { font-size: .78rem; color: var(--muted); margin-top: .75rem; line-height: 1.5; }
+.text-warn { color: #ea580c; }
+.tsb-optimal { color: #2e7d32; }
+.tsb-neutral  { color: #f59e0b; }
+.tsb-build    { color: #ea580c; }
+.tsb-over     { color: var(--error); }
+
 /* --- CSV export --- */
 .export-bar { display: flex; gap: .5rem; margin-bottom: .75rem; justify-content: flex-end; }
 
@@ -291,6 +302,9 @@ select {
     /* Month table */
     .month-table th, .month-table td { padding: .4rem .5rem; font-size: .8rem; }
     .sport-breakdown { gap: .3rem; }
+
+    /* Form page */
+    .form-grid-2 { grid-template-columns: 1fr; }
 
     /* Settings */
     .settings-form { max-width: 100%; }

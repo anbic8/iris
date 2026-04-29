@@ -20,6 +20,8 @@ class User(Base):
     birth_year    = Column(Integer, nullable=True)
     weight_kg     = Column(Numeric(5, 2), nullable=True)
     hr_zones      = Column(Text, nullable=True)
+    resting_hr    = Column(Integer, nullable=True)
+    gender        = Column(SAEnum("male", "female"), nullable=False, default="male")
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 
