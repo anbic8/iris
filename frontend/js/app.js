@@ -1201,6 +1201,24 @@ async function loadForm() {
         tsb > -25 ? ["Aufbauphase",      "tsb-build",    "#ea580c"] :
                     ["Überbelastung ⚠",  "tsb-over",     "var(--error)"];
 
+    // Training recommendation
+    const ratio = last.ctl > 0 ? last.atl / last.ctl : 1;
+    const rec = (() => {
+        if (tsb < -30 || ratio > 1.5)
+            return { when: "Heute: Pause",       zone: null,      icon: "😴", text: "Deine Ermüdung (ATL) ist sehr hoch. Aktive Erholung oder vollständige Pause." };
+        if (tsb < -15)
+            return { when: "Heute",              zone: "Z1–Z2",   icon: "🚶", text: "Leichtes Regenerationstraining. Niedriger Puls, kein Druck." };
+        if (tsb < -5)
+            return { when: "Heute",              zone: "Z2",      icon: "🏃", text: "Ruhiger Dauerlauf. Grundlagenausdauer aufbauen." };
+        if (tsb < 5)
+            return { when: "Heute",              zone: "Z2–Z3",   icon: "🏃", text: "Guter Trainingstag — Tempodauerlauf oder lockere Intervalle möglich." };
+        if (tsb <= 20)
+            return { when: "Heute",              zone: "Z3–Z4",   icon: "⚡", text: "Du bist gut erholt. Harte Einheit, Tempolauf oder Wettkampf empfohlen." };
+        if (tsb <= 35)
+            return { when: "Morgen",             zone: "Z3–Z4",   icon: "⚡", text: "Sehr hohe Form — heute noch leicht, morgen kannst du alles geben." };
+        return     { when: "Übermorgen",         zone: "Z2–Z3",   icon: "🏆", text: "Maximale Form. Für einen Wettkampf wäre jetzt der optimale Zeitpunkt." };
+    })();
+
     // Days until TSB reaches +5 (full rest projection)
     let daysToForm = null;
     if (tsb < 5) {
@@ -1243,6 +1261,14 @@ async function loadForm() {
             <strong style="color:${tsbColor}">${tsbLabel}</strong>
             ${tsb > 5 && tsb <= 25 ? " · Guter Zeitpunkt für einen Wettkampf." : ""}
             ${daysToForm ? ` · Bei vollständiger Regeneration in ca. <strong>${daysToForm} Tagen</strong> in Wettkampfform.` : ""}
+        </div>
+
+        <div class="form-recommendation">
+            <div class="form-rec-header">
+                <span class="form-rec-icon">${rec.icon}</span>
+                <span class="form-rec-when">Nächstes Training: <strong>${rec.when}${rec.zone ? ` · ${rec.zone}` : ""}</strong></span>
+            </div>
+            <p class="form-rec-text">${rec.text}</p>
         </div>
 
         <div class="form-grid-2">
