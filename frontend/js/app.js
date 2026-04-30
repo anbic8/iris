@@ -1587,7 +1587,7 @@ function loadPlan() {
         </div>
         <div id="plan-output"></div>
     `;
-    const generate = () => {
+    const generate = async () => {
         await ensurePRs();
         const goal    = document.getElementById("plan-goal").value;
         const weeks   = parseInt(document.getElementById("plan-weeks").value);
