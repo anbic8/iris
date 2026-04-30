@@ -156,13 +156,12 @@ function calcVo2(act) {
     return est > 20 && est < 90 ? est : null;
 }
 
-function calcVo2maxFromPRs(standard, maxAgeDays = 730) {
+function calcVo2maxFromPRs(standard, maxAgeDays = 180) {
     if (!standard?.length) return null;
     const cutoff = new Date(Date.now() - maxAgeDays * 86400000);
     let best = null;
     for (const pr of standard) {
         if (!pr?.best_s || pr.km < 1) continue;
-        // Skip PRs older than maxAgeDays
         if (pr.date && new Date(pr.date) < cutoff) continue;
         const v   = pr.km * 1000 / (pr.best_s / 60);
         const t   = pr.best_s / 60;
@@ -172,8 +171,6 @@ function calcVo2maxFromPRs(standard, maxAgeDays = 730) {
         const est = vo2 / pct;
         if (est > 15 && est < 90 && (!best || est > best)) best = est;
     }
-    // Progressive fallback: try wider window if no recent PRs found
-    if (!best && maxAgeDays < 1825) return calcVo2maxFromPRs(standard, 1825);
     return best ? Math.round(best * 10) / 10 : null;
 }
 
@@ -1629,11 +1626,11 @@ async function loadForm() {
     await ensurePRs();
     const series       = calcFitnessSeries(allActivities, currentUser, 180);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
-    const vo2maxRecent = calcVo2maxFromPRs(prStandard, 730);     // prefer last 2 years
-    const vo2maxAny    = calcVo2maxFromPRs(prStandard, 1825);    // fall back: last 5 years
-    const vo2maxActs   = calcVo2max(allActivities);              // last 180 days activities
-    const vo2max       = vo2maxRecent ?? vo2maxActs ?? vo2maxAny;
-    const vo2maxStale  = !vo2maxRecent && (vo2maxAny || vo2maxActs);
+    const vo2maxRecent = calcVo2maxFromPRs(prStandard, 180);     // PRs letzte 6 Monate
+    const vo2maxActs   = calcVo2max(allActivities);              // Aktivitäten letzte 180 Tage
+    const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);    // Fallback: letzte 5 Jahre
+    const vo2max       = vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
+    const vo2maxStale  = !vo2maxRecent && !!vo2max;
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
     const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
