@@ -156,11 +156,14 @@ function calcVo2(act) {
     return est > 20 && est < 90 ? est : null;
 }
 
-function calcVo2maxFromPRs(standard) {
+function calcVo2maxFromPRs(standard, maxAgeDays = 730) {
     if (!standard?.length) return null;
+    const cutoff = new Date(Date.now() - maxAgeDays * 86400000);
     let best = null;
     for (const pr of standard) {
         if (!pr?.best_s || pr.km < 1) continue;
+        // Skip PRs older than maxAgeDays
+        if (pr.date && new Date(pr.date) < cutoff) continue;
         const v   = pr.km * 1000 / (pr.best_s / 60);
         const t   = pr.best_s / 60;
         const vo2 = -4.60 + 0.182258 * v + 0.000104 * v * v;
@@ -169,6 +172,8 @@ function calcVo2maxFromPRs(standard) {
         const est = vo2 / pct;
         if (est > 15 && est < 90 && (!best || est > best)) best = est;
     }
+    // Progressive fallback: try wider window if no recent PRs found
+    if (!best && maxAgeDays < 1825) return calcVo2maxFromPRs(standard, 1825);
     return best ? Math.round(best * 10) / 10 : null;
 }
 
@@ -1307,18 +1312,28 @@ function renderActivityAnalysis(activity, trackpoints) {
     // Pace comparison vs last 90 days
     let compareHtml = "";
     if (isRun && activity.avg_pace) {
+        const actKm  = parseFloat(activity.distance_m) / 1000;
+        const loKm   = actKm * 0.5;
+        const hiKm   = actKm * 2.0;
         const recent = allActivities.filter(a =>
             (a.sport_type === "running" || a.sport_type === "trail") &&
             a.avg_pace && a.id !== activity.id &&
-            new Date(a.start_time) > new Date(Date.now() - 90 * 86400000)
+            new Date(a.start_time) > new Date(Date.now() - 90 * 86400000) &&
+            parseFloat(a.distance_m) / 1000 >= loKm &&
+            parseFloat(a.distance_m) / 1000 <= hiKm
         );
         if (recent.length >= 3) {
-            const avgP = recent.reduce((s, a) => s + parseFloat(a.avg_pace), 0) / recent.length;
-            const diff = avgP - parseFloat(activity.avg_pace); // positive = faster
+            // Distance-weighted average (longer runs carry more weight)
+            const totalDist = recent.reduce((s, a) => s + parseFloat(a.distance_m), 0);
+            const avgP = recent.reduce((s, a) => s + parseFloat(a.avg_pace) * parseFloat(a.distance_m), 0) / totalDist;
+            const diff = avgP - parseFloat(activity.avg_pace); // positive = this run was faster
             const pct  = Math.round(Math.abs(diff) / avgP * 100);
             if (pct >= 1) {
-                const cls = diff > 0 ? "delta-up" : "delta-down";
-                compareHtml = `<p class="analysis-compare"><span class="${cls}">${diff > 0 ? "▲" : "▼"} ${pct}% ${diff > 0 ? "schneller" : "langsamer"}</span> als dein Ø der letzten 90 Tage (${fmtPace(avgP)} /km)</p>`;
+                const cls  = diff > 0 ? "delta-up" : "delta-down";
+                const sign = diff > 0 ? "▲" : "▼";
+                const word = diff > 0 ? "schneller" : "langsamer";
+                const range = `${loKm.toFixed(0)}–${hiKm.toFixed(0)} km`;
+                compareHtml = `<p class="analysis-compare"><span class="${cls}">${sign} ${pct}% ${word}</span> als dein distanzgewichteter Ø der letzten 90 Tage für ${range}-Läufe (${fmtPace(avgP)} /km, n=${recent.length})</p>`;
             }
         }
     }
@@ -1614,7 +1629,11 @@ async function loadForm() {
     await ensurePRs();
     const series       = calcFitnessSeries(allActivities, currentUser, 180);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
-    const vo2max       = calcVo2maxFromPRs(prStandard) ?? calcVo2max(allActivities);
+    const vo2maxRecent = calcVo2maxFromPRs(prStandard, 730);     // prefer last 2 years
+    const vo2maxAny    = calcVo2maxFromPRs(prStandard, 1825);    // fall back: last 5 years
+    const vo2maxActs   = calcVo2max(allActivities);              // last 180 days activities
+    const vo2max       = vo2maxRecent ?? vo2maxActs ?? vo2maxAny;
+    const vo2maxStale  = !vo2maxRecent && (vo2maxAny || vo2maxActs);
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
     const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
@@ -1695,6 +1714,7 @@ async function loadForm() {
                     <div class="stat-value">${vo2max}</div>
                     <div class="stat-label">VO₂max (ml/kg/min)</div>
                     <div class="stat-desc" style="color:${cls.color};font-weight:600">${cls.label}</div>
+                    ${vo2maxStale ? `<div class="stat-desc" style="color:var(--muted)">⚠ Schätzung veraltet</div>` : ""}
                 </div>`;
             })() : ""}
         </div>
