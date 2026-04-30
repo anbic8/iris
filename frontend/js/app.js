@@ -6,7 +6,8 @@ let _mapInstance  = null;
 let _hoverMarker  = null;
 
 const SPORT_COLORS = { running: "#4f8ef7", cycling: "#43c59e", hiking: "#f7b84f", other: "#a0a0a0", trail: "#9b59b6" };
-const ZONE_COLORS  = { "Z1":"#93c47d","Z1-Z2":"#6db56d","Z2":"#6fa8dc","Z2-Z3":"#5590cc","Z3":"#ffd966","Z3-Z4":"#f7b84f","Z4":"#e06666","Z4-Z5":"#cc0000" };
+const ZONE_COLORS  = { "RECOM":"#93c47d","GA 1":"#6fa8dc","GA 1-2":"#ffd966","GA 2":"#f7b84f","GA 2–WSA":"#e06666","WSA":"#cc0000" };
+let prStandard = null;
 const GOAL_NAMES   = { base:"Grundlagenausdauer aufbauen","5k":"5 km Wettkampf","10k":"10 km Wettkampf", half:"Halbmarathon", marathon:"Marathon", health:"Gesundheit & Abnehmen", recovery:"Regeneration & Erholung" };
 const SPORT_NAMES  = { running: "Laufen", cycling: "Radfahren", hiking: "Wandern", other: "Sonstiges", trail: "Berglauf" };
 const SPORT_ICONS  = { running: "🏃", cycling: "🚴", hiking: "🥾", other: "🏅", trail: "⛰️" };
@@ -126,7 +127,7 @@ function estimateHrFromPace(paceMinKm, maxHr) {
 function getZoneBoundaries(user) {
     const maxHr = estimateMaxHr(user);
     if (user.hr_zones && user.hr_zones.length >= 4) return user.hr_zones;
-    return [0.60, 0.70, 0.80, 0.90].map(p => Math.round(maxHr * p));
+    return [0.65, 0.80, 0.87, 0.92].map(p => Math.round(maxHr * p));
 }
 
 function calcTrimp(act, user) {
@@ -153,6 +154,31 @@ function calcVo2(act) {
     if (pctMax <= 0) return null;
     const est = vo2 / pctMax;
     return est > 20 && est < 90 ? est : null;
+}
+
+function calcVo2maxFromPRs(standard) {
+    if (!standard?.length) return null;
+    let best = null;
+    for (const pr of standard) {
+        if (!pr?.best_s || pr.km < 1) continue;
+        const v   = pr.km * 1000 / (pr.best_s / 60);
+        const t   = pr.best_s / 60;
+        const vo2 = -4.60 + 0.182258 * v + 0.000104 * v * v;
+        const pct = 0.8 + 0.1894393 * Math.exp(-0.012778 * t) + 0.2989558 * Math.exp(-0.1932605 * t);
+        if (pct <= 0) continue;
+        const est = vo2 / pct;
+        if (est > 15 && est < 90 && (!best || est > best)) best = est;
+    }
+    return best ? Math.round(best * 10) / 10 : null;
+}
+
+async function ensurePRs() {
+    if (!prStandard) {
+        try {
+            const data = await request("GET", "/prs/");
+            prStandard = data?.standard ?? [];
+        } catch { prStandard = []; }
+    }
 }
 
 function calcVo2max(acts) {
@@ -189,21 +215,23 @@ function paceFromVo2pct(vo2max, pct) {
 function getZoneDetails(zoneStr, user, vo2max) {
     const bounds = getZoneBoundaries(user);
     const maxHr  = estimateMaxHr(user);
-    // HR bounds per zone string
+    // HR bounds per zone string (Zintl & Eisenhut)
     const hrMap = {
-        "Z1–Z2": [0,          bounds[1]],
-        "Z2":    [bounds[0],  bounds[1]],
-        "Z2–Z3": [bounds[0],  bounds[2]],
-        "Z3–Z4": [bounds[1],  bounds[3]],
-        "Z4–Z5": [bounds[2],  maxHr    ],
+        "RECOM":    [0,          bounds[0]],
+        "GA 1":     [bounds[0],  bounds[1]],
+        "GA 1-2":   [bounds[1],  bounds[2]],
+        "GA 2":     [bounds[2],  bounds[3]],
+        "GA 2–WSA": [bounds[2],  maxHr    ],
+        "WSA":      [bounds[3],  maxHr    ],
     };
     // %VO2max range per zone string (Jack Daniels training intensities)
     const vo2pctMap = {
-        "Z1–Z2": [0.55, 0.70],
-        "Z2":    [0.62, 0.74],
-        "Z2–Z3": [0.65, 0.82],
-        "Z3–Z4": [0.80, 0.92],
-        "Z4–Z5": [0.92, 1.00],
+        "RECOM":    [0.50, 0.65],
+        "GA 1":     [0.62, 0.78],
+        "GA 1-2":   [0.75, 0.87],
+        "GA 2":     [0.85, 0.92],
+        "GA 2–WSA": [0.90, 1.00],
+        "WSA":      [0.92, 1.00],
     };
     const hr  = hrMap[zoneStr]     ?? null;
     const pct = vo2pctMap[zoneStr] ?? null;
@@ -681,6 +709,7 @@ async function loadPRs() {
     let data;
     try {
         data = await request("GET", "/prs/");
+        prStandard = data?.standard ?? null;
     } catch (e) {
         content.innerHTML = `<p class="error">${e.message}</p>`;
         return;
@@ -1417,19 +1446,19 @@ function buildSessionDescription(typeKey, goal, dur, paceStr) {
     return d[typeKey] ?? "";
 }
 
-function generateTrainingPlan(goal, numWeeks, sessionsPerWeek) {
+function generateTrainingPlan(goal, numWeeks, sessionsPerWeek, vo2maxOverride = null) {
     const series = calcFitnessSeries(allActivities, currentUser, 7);
     const today  = series.at(-1) ?? { ctl: 30, atl: 30, tsb: 0 };
-    const vo2max = calcVo2max(allActivities);
+    const vo2max = vo2maxOverride ?? calcVo2maxFromPRs(prStandard) ?? calcVo2max(allActivities);
     const bounds = getZoneBoundaries(currentUser);
     const maxHr  = estimateMaxHr(currentUser);
     const ctl    = Math.max(5, today.ctl);
     const scale  = Math.max(0.5, Math.min(1.7, ctl / 45));
 
     const hrRange = z => {
-        const m = { "Z1":[0,bounds[0]], "Z1-Z2":[0,bounds[1]], "Z2":[bounds[0],bounds[1]],
-                    "Z2-Z3":[bounds[0],bounds[2]], "Z3":[bounds[1],bounds[2]],
-                    "Z3-Z4":[bounds[1],bounds[3]], "Z4":[bounds[2],bounds[3]], "Z4-Z5":[bounds[2],maxHr] };
+        const m = { "RECOM":[0,bounds[0]], "GA 1":[bounds[0],bounds[1]],
+                    "GA 1-2":[bounds[1],bounds[2]], "GA 2":[bounds[2],bounds[3]],
+                    "GA 2–WSA":[bounds[2],maxHr], "WSA":[bounds[3],maxHr] };
         return m[z] ?? [0, maxHr];
     };
     const paceRange = (lo, hi) => {
@@ -1438,14 +1467,14 @@ function generateTrainingPlan(goal, numWeeks, sessionsPerWeek) {
     };
 
     const SESSION_DEFS = {
-        easy:      { name:"Lockerer Dauerlauf",   zone:"Z2",    pLo:0.63, pHi:0.74, base:40  },
-        long:      { name:"Langer Lauf",          zone:"Z1-Z2", pLo:0.60, pHi:0.72, base:70  },
-        tempo:     { name:"Tempodauerlauf",       zone:"Z3",    pLo:0.75, pHi:0.83, base:40  },
-        threshold: { name:"Schwellentraining",    zone:"Z3-Z4", pLo:0.82, pHi:0.90, base:45  },
-        intervals: { name:"Intervalltraining",    zone:"Z4",    pLo:0.88, pHi:0.96, base:50  },
-        marathon:  { name:"Marathontempolauf",    zone:"Z2-Z3", pLo:0.75, pHi:0.84, base:55  },
-        vlong:     { name:"Sehr langer Lauf",     zone:"Z1-Z2", pLo:0.58, pHi:0.72, base:100 },
-        recovery:  { name:"Regenerationslauf",    zone:"Z1",    pLo:0.50, pHi:0.62, base:30  },
+        easy:      { name:"Lockerer Dauerlauf",   zone:"GA 1",     pLo:0.63, pHi:0.74, base:40  },
+        long:      { name:"Langer Lauf",          zone:"GA 1",     pLo:0.60, pHi:0.72, base:70  },
+        tempo:     { name:"Tempodauerlauf",       zone:"GA 1-2",   pLo:0.75, pHi:0.83, base:40  },
+        threshold: { name:"Schwellentraining",    zone:"GA 2",     pLo:0.82, pHi:0.90, base:45  },
+        intervals: { name:"Intervalltraining",    zone:"GA 2–WSA", pLo:0.88, pHi:0.96, base:50  },
+        marathon:  { name:"Marathontempolauf",    zone:"GA 1-2",   pLo:0.75, pHi:0.84, base:55  },
+        vlong:     { name:"Sehr langer Lauf",     zone:"GA 1",     pLo:0.58, pHi:0.72, base:100 },
+        recovery:  { name:"Regenerationslauf",    zone:"RECOM",    pLo:0.50, pHi:0.62, base:30  },
     };
     const GOAL_SESS = {
         base:     ["long","tempo","easy"],
@@ -1559,6 +1588,7 @@ function loadPlan() {
         <div id="plan-output"></div>
     `;
     const generate = () => {
+        await ensurePRs();
         const goal    = document.getElementById("plan-goal").value;
         const weeks   = parseInt(document.getElementById("plan-weeks").value);
         const sessions= parseInt(document.getElementById("plan-sessions").value);
@@ -1581,9 +1611,10 @@ async function loadForm() {
         return;
     }
 
+    await ensurePRs();
     const series       = calcFitnessSeries(allActivities, currentUser, 180);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
-    const vo2max       = calcVo2max(allActivities);
+    const vo2max       = calcVo2maxFromPRs(prStandard) ?? calcVo2max(allActivities);
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
     const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
@@ -1609,18 +1640,18 @@ async function loadForm() {
     const ratio = last.ctl > 0 ? last.atl / last.ctl : 1;
     const rec = (() => {
         if (tsb < -30 || ratio > 1.5)
-            return { when: "Heute: Pause",       zone: null,      icon: "😴", text: "Deine Ermüdung (ATL) ist sehr hoch. Aktive Erholung oder vollständige Pause." };
+            return { when: "Heute: Pause",  zone: null,       icon: "😴", text: "Deine Ermüdung (ATL) ist sehr hoch. Aktive Erholung oder vollständige Pause." };
         if (tsb < -15)
-            return { when: "Heute",              zone: "Z1–Z2",   icon: "🚶", text: "Leichtes Regenerationstraining. Niedriger Puls, kein Druck." };
+            return { when: "Heute",         zone: "RECOM",    icon: "🚶", text: "Leichtes Regenerationstraining (RECOM). Niedriger Puls, kein Druck." };
         if (tsb < -5)
-            return { when: "Heute",              zone: "Z2",      icon: "🏃", text: "Ruhiger Dauerlauf. Grundlagenausdauer aufbauen." };
+            return { when: "Heute",         zone: "GA 1",     icon: "🏃", text: "Ruhiger GA 1-Dauerlauf. Grundlagenausdauer aufbauen." };
         if (tsb < 5)
-            return { when: "Heute",              zone: "Z2–Z3",   icon: "🏃", text: "Guter Trainingstag — Tempodauerlauf oder lockere Intervalle möglich." };
+            return { when: "Heute",         zone: "GA 1-2",   icon: "🏃", text: "Guter Trainingstag — Tempodauerlauf im Übergangsbereich GA 1-2 möglich." };
         if (tsb <= 20)
-            return { when: "Heute",              zone: "Z3–Z4",   icon: "⚡", text: "Du bist gut erholt. Harte Einheit, Tempolauf oder Wettkampf empfohlen." };
+            return { when: "Heute",         zone: "GA 2",     icon: "⚡", text: "Du bist gut erholt. Schwellentraining GA 2 oder Wettkampf empfohlen." };
         if (tsb <= 35)
-            return { when: "Morgen",             zone: "Z3–Z4",   icon: "⚡", text: "Sehr hohe Form — heute noch leicht, morgen kannst du alles geben." };
-        return     { when: "Übermorgen",         zone: "Z2–Z3",   icon: "🏆", text: "Maximale Form. Für einen Wettkampf wäre jetzt der optimale Zeitpunkt." };
+            return { when: "Morgen",        zone: "GA 2",     icon: "⚡", text: "Sehr hohe Form — heute noch GA 1, morgen kannst du alles geben." };
+        return     { when: "Übermorgen",    zone: "GA 1-2",   icon: "🏆", text: "Maximale Form. Für einen Wettkampf wäre jetzt der optimale Zeitpunkt." };
     })();
 
     // Days until TSB reaches +5 (full rest projection)
@@ -1805,8 +1836,8 @@ async function loadForm() {
     });
 
     // Zone donut (reuse existing HR zone colors)
-    const zoneColors = ["#93c47d","#6fa8dc","#ffd966","#e06666","#cc0000"];
-    const zoneLabels = ["Z1 Regeneration","Z2 Grundlage","Z3 Tempo","Z4 Schwelle","Z5 Maximal"];
+    const zoneColors = HR_ZONES.map(z => z.color);
+    const zoneLabels = HR_ZONES.map(z => `${z.label} – ${z.desc}`);
     const zoneTotal  = zoneDist.reduce((a, b) => a + b, 0);
     if (zoneTotal > 0) {
         mkChart("chart-form-zones", {
@@ -1899,12 +1930,12 @@ function loadSettings() {
                 <button id="calc-zones-btn" class="btn-secondary" style="margin-left:.5rem">Aus Maximalpuls berechnen</button>
             </div>
             <div class="zones-grid">
-                <label class="settings-label">Z1/Z2<input type="number" class="zone-input" data-z="0" min="80" max="240" value="${zv(0)}" placeholder="z.B. 120"></label>
-                <label class="settings-label">Z2/Z3<input type="number" class="zone-input" data-z="1" min="80" max="240" value="${zv(1)}" placeholder="z.B. 140"></label>
-                <label class="settings-label">Z3/Z4<input type="number" class="zone-input" data-z="2" min="80" max="240" value="${zv(2)}" placeholder="z.B. 160"></label>
-                <label class="settings-label">Z4/Z5<input type="number" class="zone-input" data-z="3" min="80" max="240" value="${zv(3)}" placeholder="z.B. 175"></label>
+                <label class="settings-label">RECOM/GA 1<input type="number" class="zone-input" data-z="0" min="80" max="240" value="${zv(0)}" placeholder="z.B. 124"></label>
+                <label class="settings-label">GA 1/GA 1-2<input type="number" class="zone-input" data-z="1" min="80" max="240" value="${zv(1)}" placeholder="z.B. 152"></label>
+                <label class="settings-label">GA 1-2/GA 2<input type="number" class="zone-input" data-z="2" min="80" max="240" value="${zv(2)}" placeholder="z.B. 165"></label>
+                <label class="settings-label">GA 2/WSA<input type="number" class="zone-input" data-z="3" min="80" max="240" value="${zv(3)}" placeholder="z.B. 175"></label>
             </div>
-            <p class="settings-hint">Leer lassen → automatische Berechnung aus Maximalpuls (%).</p>
+            <p class="settings-hint">Zintl &amp; Eisenhut: RECOM &lt;65% · GA 1 65–80% · GA 1-2 80–87% · GA 2 87–92% · WSA &gt;92% HFmax.<br>Leer lassen → automatische Berechnung aus Maximalpuls.</p>
             <button id="save-settings-btn" class="btn-primary">HR-Einstellungen speichern</button>
             <span id="settings-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
@@ -1954,7 +1985,7 @@ function loadSettings() {
     document.getElementById("calc-zones-btn").addEventListener("click", () => {
         const mhr = parseInt(document.getElementById("max-hr-input").value);
         if (!mhr) return;
-        [0.60, 0.70, 0.80, 0.90].forEach((p, i) => {
+        [0.65, 0.80, 0.87, 0.92].forEach((p, i) => {
             document.querySelector(`.zone-input[data-z="${i}"]`).value = Math.round(mhr * p);
         });
     });
@@ -2013,13 +2044,13 @@ async function loadUserList() {
     });
 }
 
-// --- HR Zones ---
+// --- HR Zones (Zintl & Eisenhut) ---
 const HR_ZONES = [
-    { label: "Z1 Regeneration", max: 0.60, color: "#7bc8f6" },
-    { label: "Z2 Grundlage",    max: 0.70, color: "#4f8ef7" },
-    { label: "Z3 Aerob",        max: 0.80, color: "#93c47d" },
-    { label: "Z4 Schwelle",     max: 0.90, color: "#f7b84f" },
-    { label: "Z5 Maximal",      max: 1.00, color: "#e06666" },
+    { label: "RECOM",  max: 0.65, color: "#93c47d", desc: "Regeneration / Kompensation" },
+    { label: "GA 1",   max: 0.80, color: "#6fa8dc", desc: "Grundlagenausdauer 1" },
+    { label: "GA 1-2", max: 0.87, color: "#ffd966", desc: "Aerob-Anaerob Übergang" },
+    { label: "GA 2",   max: 0.92, color: "#f7b84f", desc: "Anaerobe Schwelle" },
+    { label: "WSA",    max: 1.00, color: "#e06666", desc: "Wettkampfspezifische Ausdauer" },
 ];
 
 function computeHrZones(trackpoints, maxHr, customZones) {
