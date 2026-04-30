@@ -184,24 +184,14 @@ async function ensurePRs() {
 }
 
 function calcVo2max(acts) {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 180);
+    const cutoff = new Date(Date.now() - 180 * 86400000);
     let best = null;
-    // prefer last 180 days, fall back to all-time
     for (const a of acts) {
+        if (!a.start_time || new Date(a.start_time) < cutoff) continue;
         const v = calcVo2(a);
-        if (!v) continue;
-        if (!best || v > best.v) best = { v, recent: new Date(a.start_time) >= cutoff };
+        if (v && (!best || v > best)) best = v;
     }
-    if (!best) return null;
-    if (!best.recent) {
-        // try all-time best
-        for (const a of acts) {
-            const v = calcVo2(a);
-            if (v && (!best || v > best.v)) best = { v, recent: false };
-        }
-    }
-    return best ? Math.round(best.v * 10) / 10 : null;
+    return best ? Math.round(best * 10) / 10 : null;
 }
 
 function paceFromVo2pct(vo2max, pct) {
@@ -1630,7 +1620,10 @@ async function loadForm() {
     const vo2maxActs   = calcVo2max(allActivities);              // Aktivitäten letzte 180 Tage
     const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);    // Fallback: letzte 5 Jahre
     const vo2max       = vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
-    const vo2maxStale  = !vo2maxRecent && !!vo2max;
+    // Source hint: which data was used?
+    const vo2maxHint   = vo2maxRecent ? "" :
+                         vo2maxActs   ? "aus Trainingsdaten" :
+                         vo2maxOld    ? "⚠ PR veraltet (> 6 Monate)" : "";
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
     const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
@@ -1711,7 +1704,7 @@ async function loadForm() {
                     <div class="stat-value">${vo2max}</div>
                     <div class="stat-label">VO₂max (ml/kg/min)</div>
                     <div class="stat-desc" style="color:${cls.color};font-weight:600">${cls.label}</div>
-                    ${vo2maxStale ? `<div class="stat-desc" style="color:var(--muted)">⚠ Schätzung veraltet</div>` : ""}
+                    ${vo2maxHint ? `<div class="stat-desc" style="color:var(--muted)">${vo2maxHint}</div>` : ""}
                 </div>`;
             })() : ""}
         </div>
