@@ -1166,6 +1166,7 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         else if (link.dataset.view === "map")        loadMapOverview();
         else if (link.dataset.view === "form")       loadForm();
         else if (link.dataset.view === "plan")       loadPlan();
+        else if (link.dataset.view === "tests")      loadTests();
         else if (link.dataset.view === "settings")   loadSettings();
     });
 });
@@ -1430,6 +1431,173 @@ function generateAssessment(last, vo2max, monotony, user) {
     return lines;
 }
 
+// --- Lactate tests ---
+
+function parsePace(str) {
+    const parts = String(str).trim().split(":");
+    if (parts.length !== 2) return null;
+    const m = parseInt(parts[0]), s = parseInt(parts[1]);
+    if (isNaN(m) || isNaN(s) || s >= 60) return null;
+    return Math.round((m + s / 60) * 1000) / 1000;
+}
+
+let lactateTests = null;
+
+async function ensureLactateTests() {
+    if (!lactateTests) {
+        try { lactateTests = await request("GET", "/lactate/"); }
+        catch { lactateTests = []; }
+    }
+}
+
+async function loadTests() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    content.innerHTML = `<h2>Leistungstests</h2><p class="muted">Lade…</p>`;
+    await ensureLactateTests();
+
+    const formHtml = `
+    <div class="test-form card-box">
+        <h3>Neuen Laktatstufentest erfassen</h3>
+        <div class="test-form-grid">
+            <label class="settings-label">Testdatum<input type="date" id="lt-date" value="${new Date().toISOString().slice(0,10)}"></label>
+            <label class="settings-label">VO₂max (ml/kg/min)<input type="number" id="lt-vo2max" step="0.1" min="20" max="90" placeholder="z.B. 52.4"></label>
+        </div>
+        <div class="test-form-grid">
+            <label class="settings-label">LT Pace (1 km, MM:SS)<input type="text" id="lt-lt-pace" placeholder="z.B. 5:30" pattern="[0-9]+:[0-5][0-9]"></label>
+            <label class="settings-label">LT Herzfrequenz (bpm)<input type="number" id="lt-lt-hr" min="80" max="220" placeholder="z.B. 148"></label>
+            <label class="settings-label">IAS Pace (1 km, MM:SS)<input type="text" id="lt-ias-pace" placeholder="z.B. 4:45" pattern="[0-9]+:[0-5][0-9]"></label>
+            <label class="settings-label">IAS Herzfrequenz (bpm)<input type="number" id="lt-ias-hr" min="80" max="220" placeholder="z.B. 168"></label>
+        </div>
+        <h4 style="margin:.75rem 0 .4rem">Stufendaten (optional)</h4>
+        <div id="lt-stages-wrap">
+            <table class="splits-table" id="lt-stages-table">
+                <thead><tr><th>Stufe</th><th>km/h</th><th>HR (bpm)</th><th>Laktat (mmol/l)</th><th></th></tr></thead>
+                <tbody id="lt-stages-body"></tbody>
+            </table>
+            <button class="btn-secondary" id="lt-add-stage" style="margin-top:.5rem">+ Stufe</button>
+        </div>
+        <label class="settings-label" style="margin-top:.75rem">Notiz<input type="text" id="lt-notes" placeholder="z.B. Laufband, 1% Steigung"></label>
+        <div style="display:flex;gap:.5rem;margin-top:.75rem">
+            <button class="btn-primary" id="lt-save-btn">Test speichern</button>
+            <span id="lt-msg" class="settings-msg hidden"></span>
+        </div>
+    </div>`;
+
+    const histHtml = lactateTests.length === 0
+        ? `<p class="muted" style="margin-top:1rem">Noch keine Tests gespeichert.</p>`
+        : lactateTests.map(t => {
+            const hasStages = t.stages?.length > 0;
+            return `<div class="test-card" data-id="${t.id}">
+                <div class="test-card-header">
+                    <span class="test-card-date">${fmtDate(t.test_date)}</span>
+                    <button class="btn-delete del-test" data-id="${t.id}" title="Test löschen">🗑</button>
+                </div>
+                <div class="test-card-metrics">
+                    ${t.vo2max ? `<div class="test-metric"><span class="test-metric-val">${t.vo2max}</span><span class="test-metric-lbl">VO₂max</span></div>` : ""}
+                    ${t.lt_pace ? `<div class="test-metric"><span class="test-metric-val">${fmtPace(t.lt_pace)}</span><span class="test-metric-lbl">LT Pace /km</span></div>` : ""}
+                    ${t.lt_hr  ? `<div class="test-metric"><span class="test-metric-val">${t.lt_hr}</span><span class="test-metric-lbl">LT HR bpm</span></div>` : ""}
+                    ${t.ias_pace? `<div class="test-metric"><span class="test-metric-val">${fmtPace(t.ias_pace)}</span><span class="test-metric-lbl">IAS Pace /km</span></div>` : ""}
+                    ${t.ias_hr ? `<div class="test-metric"><span class="test-metric-val">${t.ias_hr}</span><span class="test-metric-lbl">IAS HR bpm</span></div>` : ""}
+                </div>
+                ${t.notes ? `<p class="test-card-notes">${escapeHtml(t.notes)}</p>` : ""}
+                ${hasStages ? `<div class="chart-box" style="margin-top:.75rem"><canvas id="lt-chart-${t.id}"></canvas></div>` : ""}
+            </div>`;
+        }).join("");
+
+    content.innerHTML = `
+        <h2>Leistungstests</h2>
+        ${formHtml}
+        <h3 style="margin-top:1.5rem">Testhistorie</h3>
+        <div id="test-history">${histHtml}</div>
+    `;
+
+    // Render lactate curve charts
+    lactateTests.forEach(t => {
+        if (!t.stages?.length) return;
+        const speeds = t.stages.map(s => s.speed_kmh);
+        mkChart(`lt-chart-${t.id}`, {
+            type: "line",
+            data: {
+                labels: speeds.map(v => `${v} km/h`),
+                datasets: [
+                    { label: "Laktat (mmol/l)", data: t.stages.map(s => s.lactate), borderColor: "#e06666", backgroundColor: "rgba(224,102,102,.1)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true, yAxisID: "y" },
+                    ...(t.stages.some(s => s.hr) ? [{ label: "HR (bpm)", data: t.stages.map(s => s.hr), borderColor: "#4f8ef7", borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: "y2" }] : []),
+                ],
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { position: "top" } },
+                scales: {
+                    y:  { title: { display: true, text: "Laktat mmol/l" }, position: "left" },
+                    y2: { title: { display: true, text: "HR bpm" }, position: "right", grid: { drawOnChartArea: false } },
+                },
+            },
+        });
+    });
+
+    // Stage rows management
+    let stageCount = 0;
+    const addStageRow = (speedVal = "", hrVal = "", lacVal = "") => {
+        stageCount++;
+        const tr = document.createElement("tr");
+        tr.dataset.nr = stageCount;
+        tr.innerHTML = `<td>${stageCount}</td>
+            <td><input type="number" class="stage-speed" step="0.1" value="${speedVal}" style="width:60px"></td>
+            <td><input type="number" class="stage-hr"    min="50" max="250" value="${hrVal}" style="width:60px"></td>
+            <td><input type="number" class="stage-lac"   step="0.01" min="0" max="20" value="${lacVal}" style="width:65px"></td>
+            <td><button class="btn-delete del-row">✕</button></td>`;
+        tr.querySelector(".del-row").addEventListener("click", () => tr.remove());
+        document.getElementById("lt-stages-body").appendChild(tr);
+    };
+    document.getElementById("lt-add-stage").addEventListener("click", () => addStageRow());
+
+    // Save test
+    document.getElementById("lt-save-btn").addEventListener("click", async () => {
+        const msg = document.getElementById("lt-msg");
+        const dateVal = document.getElementById("lt-date").value;
+        if (!dateVal) { msg.textContent = "Datum fehlt"; msg.style.color = "var(--error)"; msg.classList.remove("hidden"); return; }
+
+        const ltPaceStr  = document.getElementById("lt-lt-pace").value;
+        const iasPaceStr = document.getElementById("lt-ias-pace").value;
+        const stages = [...document.querySelectorAll("#lt-stages-body tr")].map((tr, i) => ({
+            stage_nr:  i + 1,
+            speed_kmh: parseFloat(tr.querySelector(".stage-speed").value) || 0,
+            hr:        parseInt(tr.querySelector(".stage-hr").value)    || null,
+            lactate:   parseFloat(tr.querySelector(".stage-lac").value) || null,
+        })).filter(s => s.speed_kmh > 0);
+
+        const body = {
+            test_date: dateVal,
+            lt_pace:   parsePace(ltPaceStr),
+            lt_hr:     parseInt(document.getElementById("lt-lt-hr").value) || null,
+            ias_pace:  parsePace(iasPaceStr),
+            ias_hr:    parseInt(document.getElementById("lt-ias-hr").value) || null,
+            vo2max:    parseFloat(document.getElementById("lt-vo2max").value) || null,
+            notes:     document.getElementById("lt-notes").value || null,
+            stages,
+        };
+        try {
+            const created = await request("POST", "/lactate/", body);
+            lactateTests = [created, ...lactateTests];
+            msg.textContent = "✓ Gespeichert"; msg.style.color = ""; msg.classList.remove("hidden");
+            setTimeout(() => loadTests(), 800);
+        } catch (e) {
+            msg.textContent = e.message; msg.style.color = "var(--error)"; msg.classList.remove("hidden");
+        }
+    });
+
+    // Delete test buttons
+    document.querySelectorAll(".del-test").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            if (!confirm("Test wirklich löschen?")) return;
+            await request("DELETE", `/lactate/${btn.dataset.id}`);
+            lactateTests = lactateTests.filter(t => t.id !== parseInt(btn.dataset.id));
+            loadTests();
+        });
+    });
+}
+
 // --- Training plan generator ---
 
 function buildSessionDescription(typeKey, goal, dur, paceStr) {
@@ -1455,7 +1623,7 @@ function generateTrainingPlan(goal, numWeeks, sessionsPerWeek, vo2maxOverride = 
     const bounds = getZoneBoundaries(currentUser);
     const maxHr  = estimateMaxHr(currentUser);
     const ctl    = Math.max(5, today.ctl);
-    const scale  = Math.max(0.5, Math.min(1.7, ctl / 45));
+    const scale  = Math.max(0.65, Math.min(1.6, ctl / 40));
 
     const hrRange = z => {
         const m = { "RECOM":[0,bounds[0]], "GA 1":[bounds[0],bounds[1]],
@@ -1469,14 +1637,14 @@ function generateTrainingPlan(goal, numWeeks, sessionsPerWeek, vo2maxOverride = 
     };
 
     const SESSION_DEFS = {
-        easy:      { name:"Lockerer Dauerlauf",   zone:"GA 1",     pLo:0.63, pHi:0.74, base:40  },
-        long:      { name:"Langer Lauf",          zone:"GA 1",     pLo:0.60, pHi:0.72, base:70  },
-        tempo:     { name:"Tempodauerlauf",       zone:"GA 1-2",   pLo:0.75, pHi:0.83, base:40  },
-        threshold: { name:"Schwellentraining",    zone:"GA 2",     pLo:0.82, pHi:0.90, base:45  },
-        intervals: { name:"Intervalltraining",    zone:"GA 2–WSA", pLo:0.88, pHi:0.96, base:50  },
-        marathon:  { name:"Marathontempolauf",    zone:"GA 1-2",   pLo:0.75, pHi:0.84, base:55  },
-        vlong:     { name:"Sehr langer Lauf",     zone:"GA 1",     pLo:0.58, pHi:0.72, base:100 },
-        recovery:  { name:"Regenerationslauf",    zone:"RECOM",    pLo:0.50, pHi:0.62, base:30  },
+        easy:      { name:"Lockerer Dauerlauf",   zone:"GA 1",     pLo:0.63, pHi:0.74, base:50,  min:30  },
+        long:      { name:"Langer Lauf",          zone:"GA 1",     pLo:0.60, pHi:0.72, base:90,  min:55  },
+        tempo:     { name:"Tempodauerlauf",       zone:"GA 1-2",   pLo:0.75, pHi:0.83, base:50,  min:35  },
+        threshold: { name:"Schwellentraining",    zone:"GA 2",     pLo:0.82, pHi:0.90, base:55,  min:35  },
+        intervals: { name:"Intervalltraining",    zone:"GA 2–WSA", pLo:0.88, pHi:0.96, base:60,  min:40  },
+        marathon:  { name:"Marathontempolauf",    zone:"GA 1-2",   pLo:0.75, pHi:0.84, base:70,  min:45  },
+        vlong:     { name:"Sehr langer Lauf",     zone:"GA 1",     pLo:0.58, pHi:0.72, base:120, min:70  },
+        recovery:  { name:"Regenerationslauf",    zone:"RECOM",    pLo:0.50, pHi:0.62, base:35,  min:25  },
     };
     const GOAL_SESS = {
         base:     ["long","tempo","easy"],
@@ -1509,7 +1677,7 @@ function generateTrainingPlan(goal, numWeeks, sessionsPerWeek, vo2maxOverride = 
                 label: phaseLabel(phase, wi),
                 sessions: types.map((tk, si) => {
                     const def = SESSION_DEFS[tk];
-                    const dur = Math.min(180, Math.max(20, Math.round(def.base * scale * lf)));
+                    const dur = Math.min(180, Math.max(def.min, Math.round(def.base * scale * lf)));
                     const [hLo, hHi] = hrRange(def.zone);
                     const p = paceRange(def.pLo, def.pHi);
                     const pStr = p ? ` (${fmtPace(p[0])}–${fmtPace(p[1])} /km)` : "";
@@ -1614,14 +1782,16 @@ async function loadForm() {
     }
 
     await ensurePRs();
+    await ensureLactateTests();
     const series       = calcFitnessSeries(allActivities, currentUser, 180);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
+    const vo2maxTest   = lactateTests?.[0]?.vo2max ?? null;       // neuester Laktattest
     const vo2maxRecent = calcVo2maxFromPRs(prStandard, 180);     // PRs letzte 6 Monate
     const vo2maxActs   = calcVo2max(allActivities);              // Aktivitäten letzte 180 Tage
     const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);    // Fallback: letzte 5 Jahre
-    const vo2max       = vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
-    // Source hint: which data was used?
-    const vo2maxHint   = vo2maxRecent ? "" :
+    const vo2max       = vo2maxTest ?? vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
+    const vo2maxHint   = vo2maxTest   ? `Laktattest ${fmtDate(lactateTests[0].test_date)}` :
+                         vo2maxRecent ? "" :
                          vo2maxActs   ? "aus Trainingsdaten" :
                          vo2maxOld    ? "⚠ PR veraltet (> 6 Monate)" : "";
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);

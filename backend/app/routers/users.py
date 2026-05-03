@@ -29,9 +29,10 @@ class UserUpdate(BaseModel):
     hr_zones: list[int] | None = None
     birth_year: int | None = None
     weight_kg: float | None = None
-    resting_hr: int | None = None
-    gender: str | None = None
-    password: str | None = None
+    resting_hr:       int | None  = None
+    gender:           str | None  = None
+    strength_enabled: bool | None = None
+    password:         str | None  = None
 
 
 @router.post("/login")
@@ -60,8 +61,9 @@ def me(current_user: User = Depends(get_current_user)):
         "hr_zones": json.loads(current_user.hr_zones) if current_user.hr_zones else None,
         "birth_year": current_user.birth_year,
         "weight_kg": float(current_user.weight_kg) if current_user.weight_kg else None,
-        "resting_hr": current_user.resting_hr,
-        "gender": current_user.gender or "male",
+        "resting_hr":       current_user.resting_hr,
+        "gender":           current_user.gender or "male",
+        "strength_enabled": bool(current_user.strength_enabled),
     }
 
 
@@ -81,6 +83,8 @@ def update_me(data: UserUpdate, db: Session = Depends(get_db), current_user: Use
         current_user.resting_hr = data.resting_hr
     if data.gender is not None and data.gender in ("male", "female"):
         current_user.gender = data.gender
+    if data.strength_enabled is not None:
+        current_user.strength_enabled = data.strength_enabled
     if data.password is not None:
         current_user.password_hash = hash_password(data.password)
     db.commit()

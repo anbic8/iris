@@ -1,9 +1,10 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, Column, DateTime, Enum as SAEnum,
+    BigInteger, Boolean, Column, Date, DateTime, Enum as SAEnum,
     ForeignKey, Integer, Numeric, String, Text, UniqueConstraint,
 )
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -11,18 +12,19 @@ from app.database import Base
 class User(Base):
     __tablename__ = "users"
 
-    id            = Column(Integer, primary_key=True, autoincrement=True)
-    name          = Column(String(100), nullable=False)
-    email         = Column(String(255), nullable=False, unique=True)
-    password_hash = Column(String(255), nullable=False)
-    is_admin      = Column(Boolean, nullable=False, default=False)
-    max_hr        = Column(Integer, nullable=True)
-    birth_year    = Column(Integer, nullable=True)
-    weight_kg     = Column(Numeric(5, 2), nullable=True)
-    hr_zones      = Column(Text, nullable=True)
-    resting_hr    = Column(Integer, nullable=True)
-    gender        = Column(SAEnum("male", "female"), nullable=False, default="male")
-    created_at    = Column(DateTime, default=datetime.utcnow)
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    name             = Column(String(100), nullable=False)
+    email            = Column(String(255), nullable=False, unique=True)
+    password_hash    = Column(String(255), nullable=False)
+    is_admin         = Column(Boolean, nullable=False, default=False)
+    max_hr           = Column(Integer, nullable=True)
+    birth_year       = Column(Integer, nullable=True)
+    weight_kg        = Column(Numeric(5, 2), nullable=True)
+    hr_zones         = Column(Text, nullable=True)
+    resting_hr       = Column(Integer, nullable=True)
+    gender           = Column(SAEnum("male", "female"), nullable=False, default="male")
+    strength_enabled = Column(Boolean, nullable=False, default=False)
+    created_at       = Column(DateTime, default=datetime.utcnow)
 
 
 class Activity(Base):
@@ -65,3 +67,78 @@ class Trackpoint(Base):
     elevation   = Column(Numeric(8, 2), nullable=True)
     hr          = Column(Integer, nullable=True)
     timestamp   = Column(DateTime, nullable=False)
+
+
+class LactateTest(Base):
+    __tablename__ = "lactate_tests"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    test_date  = Column(Date, nullable=False)
+    lt_pace    = Column(Numeric(6, 3), nullable=True)
+    lt_hr      = Column(Integer, nullable=True)
+    ias_pace   = Column(Numeric(6, 3), nullable=True)
+    ias_hr     = Column(Integer, nullable=True)
+    vo2max     = Column(Numeric(5, 1), nullable=True)
+    notes      = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    stages     = relationship("LactateStage", cascade="all, delete-orphan", back_populates="test", order_by="LactateStage.stage_nr")
+
+
+class LactateStage(Base):
+    __tablename__ = "lactate_stages"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    test_id    = Column(Integer, ForeignKey("lactate_tests.id", ondelete="CASCADE"), nullable=False)
+    stage_nr   = Column(Integer, nullable=False)
+    speed_kmh  = Column(Numeric(4, 1), nullable=False)
+    hr         = Column(Integer, nullable=True)
+    lactate    = Column(Numeric(4, 2), nullable=True)
+    test       = relationship("LactateTest", back_populates="stages")
+
+
+class Exercise(Base):
+    __tablename__ = "exercises"
+
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    user_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    name      = Column(String(100), nullable=False)
+    category  = Column(String(50), nullable=True)
+    muscles   = Column(String(200), nullable=True)
+    is_global = Column(Boolean, nullable=False, default=False)
+
+
+class WorkoutTemplate(Base):
+    __tablename__ = "workout_templates"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name       = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class WorkoutSession(Base):
+    __tablename__ = "workout_sessions"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    template_id  = Column(Integer, ForeignKey("workout_templates.id", ondelete="SET NULL"), nullable=True)
+    session_date = Column(Date, nullable=False)
+    duration_min = Column(Integer, nullable=True)
+    notes        = Column(Text, nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    sets         = relationship("WorkoutSet", cascade="all, delete-orphan", back_populates="session")
+
+
+class WorkoutSet(Base):
+    __tablename__ = "workout_sets"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    session_id  = Column(Integer, ForeignKey("workout_sessions.id", ondelete="CASCADE"), nullable=False)
+    exercise_id = Column(Integer, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
+    set_nr      = Column(Integer, nullable=False)
+    reps        = Column(Integer, nullable=True)
+    weight_kg   = Column(Numeric(5, 2), nullable=True)
+    duration_s  = Column(Integer, nullable=True)
+    session     = relationship("WorkoutSession", back_populates="sets")
+    exercise    = relationship("Exercise")
