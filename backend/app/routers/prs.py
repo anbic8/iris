@@ -13,7 +13,8 @@ from app.models import Activity, PersonalRecord, Trackpoint, User
 
 router = APIRouter()
 
-_cache: dict[int, dict] = {}
+_cache:      dict[int, dict] = {}
+_year_cache: dict[str, dict] = {}
 
 STANDARD_KM     = [1.0, 3.0, 5.0, 10.0, 21.095, 42.195]
 STANDARD_LABELS = ["1 km", "3 km", "5 km", "10 km", "Halbmarathon", "Marathon"]
@@ -21,6 +22,8 @@ STANDARD_LABELS = ["1 km", "3 km", "5 km", "10 km", "Halbmarathon", "Marathon"]
 
 def invalidate_cache(user_id: int) -> None:
     _cache.pop(user_id, None)
+    for k in [k for k in _year_cache if k.startswith(f"{user_id}:")]:
+        del _year_cache[k]
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -243,7 +246,17 @@ def _compute_season_prs(user_id: int, year: int, db: Session) -> dict:
 
 
 @router.get("/")
-def get_prs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_prs(
+    year: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if year is not None:
+        ck = f"{current_user.id}:{year}"
+        if ck not in _year_cache:
+            _year_cache[ck] = _compute_season_prs(current_user.id, year, db)
+        return _year_cache[ck]
+
     if current_user.id in _cache:
         return _cache[current_user.id]
 

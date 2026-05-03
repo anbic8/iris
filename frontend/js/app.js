@@ -179,8 +179,23 @@ async function ensurePRs() {
         try {
             const data = await request("GET", "/prs/");
             prStandard = data?.standard ?? [];
+            _prByYear["all"] = { standard: prStandard };
         } catch { prStandard = []; }
     }
+}
+
+const _prByYear = {};
+
+async function ensurePRsForYear(year) {
+    if (_prByYear[year] !== undefined) return;
+    if (year === "all") {
+        await ensurePRs();
+        _prByYear["all"] = { standard: prStandard ?? [] };
+        return;
+    }
+    try {
+        _prByYear[year] = await request("GET", `/prs/?year=${year}`);
+    } catch { _prByYear[year] = { standard: [] }; }
 }
 
 function calcVo2max(acts) {
@@ -246,12 +261,23 @@ function predictRaceTime(vo2max, distKm) {
     return Math.round((lo + hi) / 2 * 60);
 }
 
-function calcFitnessSeries(acts, user, lookbackDays = 180) {
+function calcStrengthTrimp(session) {
+    if (session.duration_min) return session.duration_min * 0.65;
+    if (session.sets?.length)  return session.sets.length * 3.5;
+    return 10;
+}
+
+function calcFitnessSeries(acts, user, lookbackDays = 180, strengthSessions = []) {
     const daily = {};
     for (const a of acts) {
         if (!a.start_time) continue;
         const key = a.start_time.slice(0, 10);
         daily[key] = (daily[key] || 0) + calcTrimp(a, user);
+    }
+    for (const s of strengthSessions) {
+        if (!s.session_date) continue;
+        const key = s.session_date.slice(0, 10);
+        daily[key] = (daily[key] || 0) + calcStrengthTrimp(s);
     }
     const kAtl = 1 - Math.exp(-1 / 7);
     const kCtl = 1 - Math.exp(-1 / 42);
@@ -274,12 +300,18 @@ function calcFitnessSeries(acts, user, lookbackDays = 180) {
     return out;
 }
 
-function calcWeeklyTrimp(acts, user, weeksBack = 20) {
+function calcWeeklyTrimp(acts, user, weeksBack = 20, strengthSessions = []) {
     const weekly = {};
     for (const a of acts) {
         const d  = new Date(a.start_time);
         const wk = `${d.getFullYear()}-W${String(getISOWeek(d)).padStart(2, "0")}`;
         weekly[wk] = (weekly[wk] || 0) + calcTrimp(a, user);
+    }
+    for (const s of strengthSessions) {
+        if (!s.session_date) continue;
+        const d  = new Date(s.session_date);
+        const wk = `${d.getFullYear()}-W${String(getISOWeek(d)).padStart(2, "0")}`;
+        weekly[wk] = (weekly[wk] || 0) + calcStrengthTrimp(s);
     }
     const result = [];
     const now = new Date();
@@ -404,12 +436,14 @@ async function init() {
 }
 
 // --- Dashboard ---
-function loadDashboard() {
+async function loadDashboard() {
     const years = getYears();
-    renderDashboard(years[0] || new Date().getFullYear(), years);
+    const year  = years[0] || new Date().getFullYear();
+    await ensurePRsForYear(year);
+    renderDashboard(year, years);
 }
 
-function renderDashboard(year, years) {
+async function renderDashboard(year, years) {
     destroyCharts();
     const content = document.getElementById("content");
     const isAll = year === "all";
@@ -451,6 +485,23 @@ function renderDashboard(year, years) {
 
     const recent = yearActs.slice(0, 8);
 
+    // PRs for the selected year
+    const yearPrData = _prByYear[year] ?? null;
+    const prStd = (yearPrData?.standard ?? []).filter(Boolean);
+    const prHtml = prStd.length === 0 ? "" : `
+        <h3>${isAll ? "Allzeit-Bestzeiten" : "Bestzeiten " + year}</h3>
+        <div class="pr-table-wrap">
+            <table class="pr-table">
+                <thead><tr><th>Distanz</th><th>Bestzeit</th><th>Pace</th><th>Datum</th></tr></thead>
+                <tbody>${prStd.map(pr => `<tr class="pr-row" data-id="${pr.activity_id}">
+                    <td>${pr.label}</td>
+                    <td><strong>${fmtSeconds(pr.best_s)}</strong></td>
+                    <td>${fmtPace(pr.pace_min_km)} /km</td>
+                    <td>${fmtDate(pr.date)}</td>
+                </tr>`).join("")}</tbody>
+            </table>
+        </div>`;
+
     content.innerHTML = `
         <div class="page-header">
             <h2>Dashboard</h2>
@@ -480,6 +531,7 @@ function renderDashboard(year, years) {
         <div class="month-table-wrap">
             <table class="month-table" id="month-overview-table"></table>
         </div>
+        ${prHtml}
         <h3>${isAll ? "Letzte Aktivitäten" : "Aktivitäten " + year}</h3>
         <div class="activity-list">${recent.map(activityCard).join("") || "<p>Keine Aktivitäten.</p>"}</div>
     `;
@@ -537,13 +589,19 @@ function renderDashboard(year, years) {
     }
 
     document.querySelectorAll(".year-tab").forEach(btn => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
             const v = btn.dataset.year;
-            renderDashboard(v === "all" ? "all" : parseInt(v), years);
+            const y = v === "all" ? "all" : parseInt(v);
+            await ensurePRsForYear(y);
+            renderDashboard(y, years);
         });
     });
     document.querySelectorAll(".activity-card").forEach(el => {
         el.addEventListener("click", () => loadActivity(parseInt(el.dataset.id)));
+    });
+    document.querySelectorAll(".pr-row").forEach(el => {
+        const id = parseInt(el.dataset.id);
+        if (id) el.addEventListener("click", () => loadActivity(id));
     });
 }
 
@@ -1164,7 +1222,6 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         document.querySelector(".nav-links").classList.remove("open");
         if (link.dataset.view === "dashboard")       loadDashboard();
         else if (link.dataset.view === "activities") loadActivities();
-        else if (link.dataset.view === "prs")        loadPRs();
         else if (link.dataset.view === "map")        loadMapOverview();
         else if (link.dataset.view === "form")       loadForm();
         else if (link.dataset.view === "plan")       loadPlan();
@@ -2061,18 +2118,21 @@ async function loadForm() {
 
     await ensurePRs();
     await ensureLactateTests();
-    const series       = calcFitnessSeries(allActivities, currentUser, 180);
+    if (currentUser.strength_enabled && !strengthSessions) await ensureStrengthData();
+    const stSessions   = currentUser.strength_enabled ? (strengthSessions ?? []) : [];
+    const series       = calcFitnessSeries(allActivities, currentUser, 180, stSessions);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
-    const vo2maxTest   = lactateTests?.[0]?.vo2max ?? null;       // neuester Laktattest
-    const vo2maxRecent = calcVo2maxFromPRs(prStandard, 180);     // PRs letzte 6 Monate
-    const vo2maxActs   = calcVo2max(allActivities);              // Aktivitäten letzte 180 Tage
-    const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);    // Fallback: letzte 5 Jahre
+    const vo2maxTest   = lactateTests?.[0]?.vo2max ?? null;
+    const vo2maxRecent = calcVo2maxFromPRs(prStandard, 180);
+    const vo2maxActs   = calcVo2max(allActivities);
+    const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);
     const vo2max       = vo2maxTest ?? vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
     const vo2maxHint   = vo2maxTest   ? `Laktattest ${fmtDate(lactateTests[0].test_date)}` :
                          vo2maxRecent ? "" :
                          vo2maxActs   ? "aus Trainingsdaten" :
                          vo2maxOld    ? "⚠ PR veraltet (> 6 Monate)" : "";
-    const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20);
+    const stCount42    = stSessions.filter(s => new Date(s.session_date) >= new Date(Date.now() - 42*86400000)).length;
+    const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20, stSessions);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
     const { monotony, strain } = calcMonotony(allActivities, currentUser, 28);
 
@@ -2157,6 +2217,7 @@ async function loadForm() {
             })() : ""}
         </div>
 
+        ${stCount42 > 0 ? `<p class="pr-hint" style="margin-bottom:.75rem">Inkl. ${stCount42} Kraft-Einheit${stCount42 !== 1 ? "en" : ""} in den letzten 42 Tagen (TRIMP ca. ${Math.round(stSessions.filter(s=>new Date(s.session_date)>=new Date(Date.now()-42*86400000)).reduce((s,x)=>s+calcStrengthTrimp(x),0))} Punkte).</p>` : ""}
         <div class="form-status-bar" style="border-left-color:${tsbColor}">
             <strong style="color:${tsbColor}">${tsbLabel}</strong>
             ${tsb > 5 && tsb <= 25 ? " · Guter Zeitpunkt für einen Wettkampf." : ""}
