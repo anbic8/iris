@@ -1699,13 +1699,16 @@ function renderSetsTable(sets) {
     }).join("");
 }
 
+function makeExOptions(preselectedId = null) {
+    return strengthExercises.map(e =>
+        `<option value="${e.id}"${e.id === preselectedId ? " selected" : ""}>${escapeHtml(e.category ? e.category + " · " : "")}${escapeHtml(e.name)}</option>`
+    ).join("");
+}
+
 function renderNewSessForm(container) {
     const today = new Date().toISOString().slice(0, 10);
     const tplOptions = `<option value="">– keine –</option>` +
         strengthTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
-    const exOptions = strengthExercises.map(e =>
-        `<option value="${e.id}">${escapeHtml(e.category ? e.category + " · " : "")}${escapeHtml(e.name)}</option>`
-    ).join("");
 
     container.innerHTML = `
         <div class="strength-new-form-inner">
@@ -1725,11 +1728,11 @@ function renderNewSessForm(container) {
         </div>
     `;
 
-    const addSetRow = () => {
+    const addSetRow = (preselectedExId = null) => {
         const row = document.createElement("div");
         row.className = "strength-set-row";
         row.innerHTML = `
-            <select class="set-ex">${exOptions}</select>
+            <select class="set-ex">${makeExOptions(preselectedExId)}</select>
             <input type="number" class="set-reps" min="1" max="100" placeholder="Wdh">
             <input type="number" class="set-weight" min="0" max="1000" step="0.5" placeholder="kg">
             <button class="btn-secondary set-remove" title="Entfernen">✕</button>
@@ -1738,8 +1741,20 @@ function renderNewSessForm(container) {
         document.getElementById("set-rows").appendChild(row);
     };
 
-    document.getElementById("btn-add-set").addEventListener("click", addSetRow);
-    addSetRow();
+    const loadTemplateExercises = () => {
+        const tplId = parseInt(document.getElementById("sess-tpl").value) || null;
+        const tpl   = strengthTemplates.find(t => t.id === tplId);
+        document.getElementById("set-rows").innerHTML = "";
+        if (tpl?.exercises?.length) {
+            tpl.exercises.forEach(te => addSetRow(te.exercise_id));
+        } else {
+            addSetRow();
+        }
+    };
+
+    document.getElementById("sess-tpl").addEventListener("change", loadTemplateExercises);
+    document.getElementById("btn-add-set").addEventListener("click", () => addSetRow());
+    loadTemplateExercises();
 
     document.getElementById("btn-save-sess").addEventListener("click", async () => {
         const msg = document.getElementById("sess-msg");
@@ -1836,18 +1851,34 @@ function renderStrength(tab) {
             ${grouped}
         `;
     } else if (tab === "templates") {
+        const exSelectOpts = `<option value="">Übung wählen…</option>` +
+            strengthExercises.map(e =>
+                `<option value="${e.id}">${escapeHtml(e.category ? e.category + " · " : "")}${escapeHtml(e.name)}</option>`
+            ).join("");
+
         const tplHtml = strengthTemplates.length === 0
             ? `<p class="muted">Noch keine Vorlagen angelegt.</p>`
-            : `<table class="pr-table"><thead><tr><th>Name</th><th></th></tr></thead><tbody>
-                ${strengthTemplates.map(t => `<tr>
-                    <td>${escapeHtml(t.name)}</td>
-                    <td><button class="btn-secondary del-tpl" data-id="${t.id}">✕</button></td>
-                </tr>`).join("")}
-               </tbody></table>`;
+            : strengthTemplates.map(t => {
+                const exNames = (t.exercises ?? []).map(te => {
+                    const ex = strengthExercises.find(e => e.id === te.exercise_id);
+                    return ex ? `<span class="tpl-ex-pill">${escapeHtml(ex.name)}<button class="tpl-ex-rm" data-tpl="${t.id}" data-ex="${te.exercise_id}">✕</button></span>` : "";
+                }).join("");
+                return `<div class="strength-card" style="margin-bottom:.75rem">
+                    <div class="strength-card-header">
+                        <span class="strength-card-date">${escapeHtml(t.name)}</span>
+                        <button class="btn-secondary del-tpl" data-id="${t.id}" style="margin-left:auto">Vorlage löschen</button>
+                    </div>
+                    <div class="tpl-ex-list">${exNames || `<span class="muted">Keine Übungen zugewiesen.</span>`}</div>
+                    <div class="tpl-add-ex" style="margin-top:.6rem;display:flex;gap:.5rem;align-items:center">
+                        <select class="tpl-ex-select" data-tpl="${t.id}">${exSelectOpts}</select>
+                        <button class="btn-secondary tpl-ex-add" data-tpl="${t.id}">+ Hinzufügen</button>
+                    </div>
+                </div>`;
+            }).join("");
 
         bodyHtml = `
             <div class="settings-form" style="margin-bottom:1.25rem">
-                <div class="settings-section-title">Neue Vorlage</div>
+                <div class="settings-section-title">Neue Vorlage anlegen</div>
                 <div class="zones-grid">
                     <label class="settings-label">Name<input type="text" id="tpl-name" placeholder="z.B. Push A"></label>
                 </div>
@@ -1904,6 +1935,7 @@ function renderStrength(tab) {
         });
         content.querySelectorAll(".del-ex").forEach(btn => {
             btn.addEventListener("click", async () => {
+                if (!confirm("Übung wirklich löschen?")) return;
                 await request("DELETE", `/strength/exercises/${btn.dataset.id}`);
                 strengthExercises = strengthExercises.filter(e => e.id !== parseInt(btn.dataset.id));
                 renderStrength("exercises");
@@ -1925,8 +1957,31 @@ function renderStrength(tab) {
         });
         content.querySelectorAll(".del-tpl").forEach(btn => {
             btn.addEventListener("click", async () => {
+                if (!confirm("Vorlage löschen?")) return;
                 await request("DELETE", `/strength/templates/${btn.dataset.id}`);
                 strengthTemplates = strengthTemplates.filter(t => t.id !== parseInt(btn.dataset.id));
+                renderStrength("templates");
+            });
+        });
+        content.querySelectorAll(".tpl-ex-add").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const tplId = parseInt(btn.dataset.tpl);
+                const sel   = content.querySelector(`.tpl-ex-select[data-tpl="${tplId}"]`);
+                const exId  = parseInt(sel?.value);
+                if (!exId) return;
+                const updated = await request("POST", `/strength/templates/${tplId}/exercises`, { exercise_id: exId });
+                strengthTemplates = strengthTemplates.map(t => t.id === tplId ? updated : t);
+                renderStrength("templates");
+            });
+        });
+        content.querySelectorAll(".tpl-ex-rm").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const tplId = parseInt(btn.dataset.tpl);
+                const exId  = parseInt(btn.dataset.ex);
+                await request("DELETE", `/strength/templates/${tplId}/exercises/${exId}`);
+                strengthTemplates = strengthTemplates.map(t =>
+                    t.id === tplId ? { ...t, exercises: t.exercises.filter(te => te.exercise_id !== exId) } : t
+                );
                 renderStrength("templates");
             });
         });

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Exercise, User, WorkoutSession, WorkoutSet, WorkoutTemplate
+from app.models import Exercise, User, WorkoutSession, WorkoutSet, WorkoutTemplate, WorkoutTemplateExercise
 
 router = APIRouter()
 
@@ -60,12 +60,20 @@ class TemplateIn(BaseModel):
     name: str
 
 
+def _template_dict(t: WorkoutTemplate) -> dict:
+    return {
+        "id":   t.id,
+        "name": t.name,
+        "exercises": [{"exercise_id": te.exercise_id} for te in t.exercises],
+    }
+
+
 @router.get("/templates")
 def list_templates(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rows = (db.query(WorkoutTemplate)
             .filter(WorkoutTemplate.user_id == current_user.id)
             .order_by(WorkoutTemplate.name).all())
-    return [{"id": t.id, "name": t.name} for t in rows]
+    return [_template_dict(t) for t in rows]
 
 
 @router.post("/templates", status_code=status.HTTP_201_CREATED)
@@ -73,7 +81,7 @@ def create_template(data: TemplateIn, db: Session = Depends(get_db),
                     current_user: User = Depends(get_current_user)):
     t = WorkoutTemplate(user_id=current_user.id, name=data.name.strip())
     db.add(t); db.commit(); db.refresh(t)
-    return {"id": t.id, "name": t.name}
+    return _template_dict(t)
 
 
 @router.delete("/templates/{tpl_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -85,6 +93,42 @@ def delete_template(tpl_id: int, db: Session = Depends(get_db),
     if not t:
         raise HTTPException(status_code=404, detail="Vorlage nicht gefunden")
     db.delete(t); db.commit()
+
+
+class TemplateExerciseIn(BaseModel):
+    exercise_id: int
+
+
+@router.post("/templates/{tpl_id}/exercises", status_code=status.HTTP_201_CREATED)
+def add_template_exercise(tpl_id: int, data: TemplateExerciseIn,
+                          db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    t = db.query(WorkoutTemplate).filter(
+        WorkoutTemplate.id == tpl_id, WorkoutTemplate.user_id == current_user.id
+    ).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Vorlage nicht gefunden")
+    next_order = max((te.sort_order for te in t.exercises), default=-1) + 1
+    db.add(WorkoutTemplateExercise(template_id=tpl_id, exercise_id=data.exercise_id, sort_order=next_order))
+    db.commit(); db.refresh(t)
+    return _template_dict(t)
+
+
+@router.delete("/templates/{tpl_id}/exercises/{ex_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_template_exercise(tpl_id: int, ex_id: int,
+                             db: Session = Depends(get_db),
+                             current_user: User = Depends(get_current_user)):
+    t = db.query(WorkoutTemplate).filter(
+        WorkoutTemplate.id == tpl_id, WorkoutTemplate.user_id == current_user.id
+    ).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Vorlage nicht gefunden")
+    te = db.query(WorkoutTemplateExercise).filter(
+        WorkoutTemplateExercise.template_id == tpl_id,
+        WorkoutTemplateExercise.exercise_id == ex_id,
+    ).first()
+    if te:
+        db.delete(te); db.commit()
 
 
 # ── Sessions ───────────────────────────────────────────────────────────────

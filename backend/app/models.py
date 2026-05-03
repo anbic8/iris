@@ -115,6 +115,18 @@ class WorkoutTemplate(Base):
     user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name       = Column(String(100), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    exercises  = relationship("WorkoutTemplateExercise", cascade="all, delete-orphan",
+                              order_by="WorkoutTemplateExercise.sort_order")
+
+
+class WorkoutTemplateExercise(Base):
+    __tablename__ = "workout_template_exercises"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    template_id = Column(Integer, ForeignKey("workout_templates.id", ondelete="CASCADE"), nullable=False)
+    exercise_id = Column(Integer, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False)
+    sort_order  = Column(Integer, nullable=False, default=0)
+    exercise    = relationship("Exercise")
 
 
 class WorkoutSession(Base):

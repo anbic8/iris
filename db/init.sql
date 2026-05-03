@@ -97,6 +97,15 @@ CREATE TABLE IF NOT EXISTS workout_templates (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS workout_template_exercises (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    template_id INT          NOT NULL,
+    exercise_id INT          NOT NULL,
+    sort_order  INT          NOT NULL DEFAULT 0,
+    FOREIGN KEY (template_id) REFERENCES workout_templates(id) ON DELETE CASCADE,
+    FOREIGN KEY (exercise_id) REFERENCES exercises(id)         ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS workout_sessions (
     id            INT AUTO_INCREMENT PRIMARY KEY,
     user_id       INT          NOT NULL,

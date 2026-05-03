@@ -321,6 +321,11 @@ select {
 .strength-new-form { background: var(--surface); border-radius: var(--radius); padding: 1rem 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 1.25rem; }
 .strength-set-row { display: grid; grid-template-columns: 1fr 80px 90px 36px; gap: .5rem; align-items: center; margin-bottom: .4rem; }
 .strength-set-row select, .strength-set-row input { font-size: .88rem; }
+.tpl-ex-list { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+.tpl-ex-pill { display: inline-flex; align-items: center; gap: .3rem; background: var(--bg); border-radius: 20px; padding: .15rem .4rem .15rem .65rem; font-size: .82rem; }
+.tpl-ex-rm { background: none; border: none; cursor: pointer; color: var(--muted); font-size: .85rem; padding: 0 .1rem; line-height: 1; }
+.tpl-ex-rm:hover { color: var(--error); }
+.tpl-add-ex select { flex: 1; font-size: .85rem; }
 
 /* --- Responsive --- */
 @media (max-width: 640px) {
