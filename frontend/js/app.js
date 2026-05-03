@@ -388,6 +388,8 @@ function showMain() {
     document.getElementById("nav-user").textContent = currentUser.name;
     document.getElementById("login-page").classList.add("hidden");
     document.getElementById("main-page").classList.remove("hidden");
+    const kraftLink = document.getElementById("nav-kraft");
+    if (kraftLink) kraftLink.classList.toggle("hidden", !currentUser.strength_enabled);
     loadDashboard();
 }
 
@@ -1167,6 +1169,7 @@ document.querySelectorAll("nav a[data-view]").forEach(link => {
         else if (link.dataset.view === "form")       loadForm();
         else if (link.dataset.view === "plan")       loadPlan();
         else if (link.dataset.view === "tests")      loadTests();
+        else if (link.dataset.view === "strength")   loadStrength();
         else if (link.dataset.view === "settings")   loadSettings();
     });
 });
@@ -1596,6 +1599,281 @@ async function loadTests() {
             loadTests();
         });
     });
+}
+
+// --- Strength tracking ---
+
+let strengthExercises = null;
+let strengthTemplates = null;
+let strengthSessions  = null;
+
+async function ensureStrengthData() {
+    [strengthExercises, strengthTemplates, strengthSessions] = await Promise.all([
+        request("GET", "/strength/exercises").catch(() => []),
+        request("GET", "/strength/templates").catch(() => []),
+        request("GET", "/strength/sessions").catch(() => []),
+    ]);
+}
+
+async function loadStrength() {
+    destroyCharts();
+    const content = document.getElementById("content");
+    content.innerHTML = `<h2>Krafttraining</h2><p class="muted">Lade…</p>`;
+    await ensureStrengthData();
+    renderStrength("sessions");
+}
+
+function renderSetsTable(sets) {
+    if (!sets.length) return "";
+    const byEx = {};
+    sets.forEach(s => {
+        if (!byEx[s.exercise_id]) byEx[s.exercise_id] = { name: s.exercise_name, sets: [] };
+        byEx[s.exercise_id].sets.push(s);
+    });
+    return Object.values(byEx).map(ex => {
+        const pills = ex.sets.map(s => {
+            const parts = [];
+            if (s.reps)      parts.push(`${s.reps} Wdh`);
+            if (s.weight_kg) parts.push(`${s.weight_kg} kg`);
+            if (s.duration_s) parts.push(fmtDuration(s.duration_s));
+            return `<span class="strength-set-pill">${parts.join(" × ") || "–"}</span>`;
+        }).join("");
+        return `<div class="strength-ex-row"><strong>${escapeHtml(ex.name)}</strong> ${pills}</div>`;
+    }).join("");
+}
+
+function renderNewSessForm(container) {
+    const today = new Date().toISOString().slice(0, 10);
+    const tplOptions = `<option value="">– keine –</option>` +
+        strengthTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+    const exOptions = strengthExercises.map(e =>
+        `<option value="${e.id}">${escapeHtml(e.category ? e.category + " · " : "")}${escapeHtml(e.name)}</option>`
+    ).join("");
+
+    container.innerHTML = `
+        <div class="strength-new-form-inner">
+            <div class="test-form-grid">
+                <label class="settings-label">Datum<input type="date" id="sess-date" value="${today}"></label>
+                <label class="settings-label">Vorlage<select id="sess-tpl">${tplOptions}</select></label>
+                <label class="settings-label">Dauer (min)<input type="number" id="sess-dur" min="5" max="300" placeholder="60"></label>
+                <label class="settings-label" style="grid-column:1/-1">Notiz<input type="text" id="sess-notes" placeholder="Notizen…"></label>
+            </div>
+            <h4 style="margin:.75rem 0 .5rem">Sätze</h4>
+            <div id="set-rows"></div>
+            <button class="btn-secondary" id="btn-add-set" style="margin-top:.5rem">+ Satz hinzufügen</button>
+            <div style="margin-top:1rem;display:flex;gap:.75rem;align-items:center">
+                <button class="btn-primary" id="btn-save-sess">Einheit speichern</button>
+                <span id="sess-msg" class="settings-msg hidden"></span>
+            </div>
+        </div>
+    `;
+
+    const addSetRow = () => {
+        const row = document.createElement("div");
+        row.className = "strength-set-row";
+        row.innerHTML = `
+            <select class="set-ex">${exOptions}</select>
+            <input type="number" class="set-reps" min="1" max="100" placeholder="Wdh">
+            <input type="number" class="set-weight" min="0" max="1000" step="0.5" placeholder="kg">
+            <button class="btn-secondary set-remove" title="Entfernen">✕</button>
+        `;
+        row.querySelector(".set-remove").addEventListener("click", () => row.remove());
+        document.getElementById("set-rows").appendChild(row);
+    };
+
+    document.getElementById("btn-add-set").addEventListener("click", addSetRow);
+    addSetRow();
+
+    document.getElementById("btn-save-sess").addEventListener("click", async () => {
+        const msg = document.getElementById("sess-msg");
+        const dateVal = document.getElementById("sess-date").value;
+        if (!dateVal) {
+            msg.textContent = "Datum fehlt"; msg.style.color = "var(--error)"; msg.classList.remove("hidden"); return;
+        }
+        const setNrMap = {};
+        const sets = [...document.querySelectorAll(".strength-set-row")].map(row => {
+            const exId = parseInt(row.querySelector(".set-ex").value);
+            setNrMap[exId] = (setNrMap[exId] || 0) + 1;
+            return {
+                exercise_id: exId,
+                set_nr:      setNrMap[exId],
+                reps:        parseInt(row.querySelector(".set-reps").value) || null,
+                weight_kg:   parseFloat(row.querySelector(".set-weight").value) || null,
+            };
+        }).filter(s => s.exercise_id);
+
+        try {
+            const created = await request("POST", "/strength/sessions", {
+                session_date: dateVal,
+                template_id:  parseInt(document.getElementById("sess-tpl").value) || null,
+                duration_min: parseInt(document.getElementById("sess-dur").value) || null,
+                notes:        document.getElementById("sess-notes").value.trim() || null,
+                sets,
+            });
+            strengthSessions = [created, ...strengthSessions];
+            renderStrength("sessions");
+        } catch (e) {
+            msg.textContent = e.message; msg.style.color = "var(--error)"; msg.classList.remove("hidden");
+        }
+    });
+}
+
+function renderStrength(tab) {
+    destroyCharts();
+    const content = document.getElementById("content");
+
+    const tabHtml = [["sessions","Einheiten"],["exercises","Übungen"],["templates","Vorlagen"]].map(([k, l]) =>
+        `<button class="year-tab${tab === k ? " active" : ""}" data-stab="${k}">${l}</button>`
+    ).join("");
+
+    let bodyHtml = "";
+
+    if (tab === "sessions") {
+        const sessHtml = strengthSessions.length === 0
+            ? `<p class="muted">Noch keine Einheiten aufgezeichnet.</p>`
+            : strengthSessions.map(s => {
+                const vol     = s.sets.reduce((sum, w) => sum + (w.reps || 0) * (w.weight_kg || 0), 0);
+                const tplName = strengthTemplates.find(t => t.id === s.template_id)?.name ?? "";
+                const durStr  = s.duration_min ? `${s.duration_min} min · ` : "";
+                return `<div class="strength-card">
+                    <div class="strength-card-header">
+                        <span class="strength-card-date">${fmtDate(s.session_date)}</span>
+                        ${tplName ? `<span class="strength-card-tpl">${escapeHtml(tplName)}</span>` : ""}
+                        <span class="strength-card-meta">${durStr}${s.sets.length} Sätze · ${Math.round(vol)} kg</span>
+                        <button class="btn-secondary del-sess" data-id="${s.id}">✕</button>
+                    </div>
+                    ${s.notes ? `<p class="test-card-notes">${escapeHtml(s.notes)}</p>` : ""}
+                    <div class="strength-sets-list">${renderSetsTable(s.sets)}</div>
+                </div>`;
+            }).join("");
+
+        bodyHtml = `
+            <button class="btn-primary" id="btn-new-sess" style="margin-bottom:1.25rem">+ Neue Einheit</button>
+            <div id="new-sess-form" class="strength-new-form hidden"></div>
+            ${sessHtml}
+        `;
+    } else if (tab === "exercises") {
+        const cats = [...new Set(strengthExercises.map(e => e.category || "Sonstiges"))].sort();
+        const grouped = cats.map(cat => {
+            const exs  = strengthExercises.filter(e => (e.category || "Sonstiges") === cat);
+            const rows = exs.map(e => `<tr>
+                <td>${escapeHtml(e.name)}</td>
+                <td class="muted">${escapeHtml(e.muscles || "")}</td>
+                <td>${e.is_global ? `<span class="muted">global</span>` : `<button class="btn-secondary del-ex" data-id="${e.id}">✕</button>`}</td>
+            </tr>`).join("");
+            return `<h4 style="margin:1rem 0 .4rem">${escapeHtml(cat)}</h4>
+                <table class="pr-table"><thead><tr><th>Übung</th><th>Muskeln</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+        }).join("");
+
+        bodyHtml = `
+            <div class="settings-form" style="margin-bottom:1.25rem">
+                <div class="settings-section-title">Eigene Übung hinzufügen</div>
+                <div class="zones-grid">
+                    <label class="settings-label">Name<input type="text" id="ex-name" placeholder="z.B. Kniebeugen"></label>
+                    <label class="settings-label">Kategorie<input type="text" id="ex-category" placeholder="z.B. Beine"></label>
+                    <label class="settings-label">Muskeln<input type="text" id="ex-muscles" placeholder="z.B. Quadrizeps"></label>
+                </div>
+                <button class="btn-primary" id="btn-add-ex">Hinzufügen</button>
+                <span id="ex-msg" class="settings-msg hidden"></span>
+            </div>
+            ${grouped}
+        `;
+    } else if (tab === "templates") {
+        const tplHtml = strengthTemplates.length === 0
+            ? `<p class="muted">Noch keine Vorlagen angelegt.</p>`
+            : `<table class="pr-table"><thead><tr><th>Name</th><th></th></tr></thead><tbody>
+                ${strengthTemplates.map(t => `<tr>
+                    <td>${escapeHtml(t.name)}</td>
+                    <td><button class="btn-secondary del-tpl" data-id="${t.id}">✕</button></td>
+                </tr>`).join("")}
+               </tbody></table>`;
+
+        bodyHtml = `
+            <div class="settings-form" style="margin-bottom:1.25rem">
+                <div class="settings-section-title">Neue Vorlage</div>
+                <div class="zones-grid">
+                    <label class="settings-label">Name<input type="text" id="tpl-name" placeholder="z.B. Push A"></label>
+                </div>
+                <button class="btn-primary" id="btn-add-tpl">Anlegen</button>
+                <span id="tpl-msg" class="settings-msg hidden"></span>
+            </div>
+            ${tplHtml}
+        `;
+    }
+
+    content.innerHTML = `
+        <div class="page-header">
+            <h2>Krafttraining</h2>
+            <div class="year-tabs">${tabHtml}</div>
+        </div>
+        ${bodyHtml}
+    `;
+
+    content.querySelectorAll("[data-stab]").forEach(btn => {
+        btn.addEventListener("click", () => renderStrength(btn.dataset.stab));
+    });
+
+    if (tab === "sessions") {
+        document.getElementById("btn-new-sess").addEventListener("click", () => {
+            const form = document.getElementById("new-sess-form");
+            form.classList.toggle("hidden");
+            if (!form.classList.contains("hidden")) renderNewSessForm(form);
+        });
+        content.querySelectorAll(".del-sess").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                if (!confirm("Einheit löschen?")) return;
+                await request("DELETE", `/strength/sessions/${btn.dataset.id}`);
+                strengthSessions = strengthSessions.filter(s => s.id !== parseInt(btn.dataset.id));
+                renderStrength("sessions");
+            });
+        });
+    } else if (tab === "exercises") {
+        document.getElementById("btn-add-ex").addEventListener("click", async () => {
+            const name = document.getElementById("ex-name").value.trim();
+            if (!name) return;
+            const msg = document.getElementById("ex-msg");
+            try {
+                const ex = await request("POST", "/strength/exercises", {
+                    name,
+                    category: document.getElementById("ex-category").value.trim() || null,
+                    muscles:  document.getElementById("ex-muscles").value.trim() || null,
+                });
+                strengthExercises = [...strengthExercises, ex];
+                msg.textContent = "✓ Hinzugefügt"; msg.style.color = ""; msg.classList.remove("hidden");
+                setTimeout(() => renderStrength("exercises"), 500);
+            } catch (e) {
+                msg.textContent = e.message; msg.style.color = "var(--error)"; msg.classList.remove("hidden");
+            }
+        });
+        content.querySelectorAll(".del-ex").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                await request("DELETE", `/strength/exercises/${btn.dataset.id}`);
+                strengthExercises = strengthExercises.filter(e => e.id !== parseInt(btn.dataset.id));
+                renderStrength("exercises");
+            });
+        });
+    } else if (tab === "templates") {
+        document.getElementById("btn-add-tpl").addEventListener("click", async () => {
+            const name = document.getElementById("tpl-name").value.trim();
+            if (!name) return;
+            const msg = document.getElementById("tpl-msg");
+            try {
+                const t = await request("POST", "/strength/templates", { name });
+                strengthTemplates = [...strengthTemplates, t];
+                msg.textContent = "✓ Angelegt"; msg.style.color = ""; msg.classList.remove("hidden");
+                setTimeout(() => renderStrength("templates"), 500);
+            } catch (e) {
+                msg.textContent = e.message; msg.style.color = "var(--error)"; msg.classList.remove("hidden");
+            }
+        });
+        content.querySelectorAll(".del-tpl").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                await request("DELETE", `/strength/templates/${btn.dataset.id}`);
+                strengthTemplates = strengthTemplates.filter(t => t.id !== parseInt(btn.dataset.id));
+                renderStrength("templates");
+            });
+        });
+    }
 }
 
 // --- Training plan generator ---
@@ -2090,6 +2368,9 @@ function loadSettings() {
                 </label>
             </div>
             <p class="settings-hint">Ruhepuls und Geschlecht werden für die TRIMP-Berechnung auf der Form-Seite verwendet.</p>
+            <label class="settings-label" style="flex-direction:row;align-items:center;gap:.5rem;font-weight:400;margin-top:.5rem">
+                <input type="checkbox" id="profile-strength"${u.strength_enabled ? " checked" : ""}> Krafttraining aktivieren
+            </label>
             <button id="save-profile-btn" class="btn-primary">Profil speichern</button>
             <span id="profile-msg" class="settings-msg hidden">✓ Gespeichert</span>
         </div>
@@ -2137,17 +2418,22 @@ function loadSettings() {
         const resting_hr = parseInt(document.getElementById("profile-resting-hr").value) || null;
         const gender     = document.getElementById("profile-gender").value;
         try {
+            const strengthEnabled = document.getElementById("profile-strength").checked;
             await request("PATCH", "/users/me", {
                 name,
-                birth_year: parseInt(document.getElementById("profile-birth").value) || null,
-                weight_kg:  parseFloat(document.getElementById("profile-weight").value) || null,
+                birth_year:       parseInt(document.getElementById("profile-birth").value) || null,
+                weight_kg:        parseFloat(document.getElementById("profile-weight").value) || null,
                 resting_hr,
                 gender,
+                strength_enabled: strengthEnabled,
             });
-            currentUser.name       = name;
-            currentUser.resting_hr = resting_hr;
-            currentUser.gender     = gender;
+            currentUser.name             = name;
+            currentUser.resting_hr       = resting_hr;
+            currentUser.gender           = gender;
+            currentUser.strength_enabled = strengthEnabled;
             document.getElementById("nav-user").textContent = name;
+            const kraftLink = document.getElementById("nav-kraft");
+            if (kraftLink) kraftLink.classList.toggle("hidden", !strengthEnabled);
             flash("profile-msg");
         } catch (e) {
             flash("profile-msg", e.message, true);
