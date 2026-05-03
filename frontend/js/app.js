@@ -1575,24 +1575,73 @@ async function loadTests() {
     // Render lactate curve charts
     lactateTests.forEach(t => {
         if (!t.stages?.length) return;
-        const speeds = t.stages.map(s => s.speed_kmh);
+        const ltSpeed  = t.lt_pace  ? 60 / t.lt_pace  : null;
+        const iasSpeed = t.ias_pace ? 60 / t.ias_pace : null;
+        const lactVals = t.stages.map(s => s.lactate).filter(Boolean);
+        const yMin = Math.max(0, Math.min(...lactVals) - 0.3);
+        const yMax = Math.max(...lactVals) + 0.5;
+
+        const vLine = (speed, color, label) => ({
+            label,
+            data: [{ x: speed, y: yMin }, { x: speed, y: yMax }],
+            borderColor: color,
+            borderWidth: 2,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            tension: 0,
+            fill: false,
+            yAxisID: "y",
+        });
+
         mkChart(`lt-chart-${t.id}`, {
             type: "line",
             data: {
-                labels: speeds.map(v => `${v} km/h`),
                 datasets: [
-                    { label: "Laktat (mmol/l)", data: t.stages.map(s => s.lactate), borderColor: "#e06666", backgroundColor: "rgba(224,102,102,.1)", borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true, yAxisID: "y" },
-                    ...(t.stages.some(s => s.hr) ? [{ label: "HR (bpm)", data: t.stages.map(s => s.hr), borderColor: "#4f8ef7", borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: "y2" }] : []),
+                    {
+                        label: "Laktat (mmol/l)",
+                        data: t.stages.map(s => ({ x: parseFloat(s.speed_kmh), y: s.lactate })),
+                        borderColor: "#e06666", backgroundColor: "rgba(224,102,102,.1)",
+                        borderWidth: 2, pointRadius: 4, tension: 0.3, fill: true, yAxisID: "y",
+                    },
+                    ...(t.stages.some(s => s.hr) ? [{
+                        label: "HR (bpm)",
+                        data: t.stages.map(s => ({ x: parseFloat(s.speed_kmh), y: s.hr })),
+                        borderColor: "#4f8ef7", borderWidth: 2, pointRadius: 3, tension: 0.3, yAxisID: "y2",
+                    }] : []),
+                    ...(ltSpeed  ? [vLine(ltSpeed,  "#f7b84f", "LT")]  : []),
+                    ...(iasSpeed ? [vLine(iasSpeed, "#e06666", "IAS")] : []),
                 ],
             },
             options: {
                 responsive: true,
-                plugins: { legend: { position: "top" } },
+                parsing: false,
+                plugins: {
+                    legend: { position: "top" },
+                    tooltip: { callbacks: { title: items => `${items[0].parsed.x} km/h` } },
+                },
                 scales: {
-                    y:  { title: { display: true, text: "Laktat mmol/l" }, position: "left" },
-                    y2: { title: { display: true, text: "HR bpm" }, position: "right", grid: { drawOnChartArea: false } },
+                    x:  { type: "linear", title: { display: true, text: "Geschwindigkeit (km/h)" } },
+                    y:  { title: { display: true, text: "Laktat (mmol/l)" }, position: "left", min: yMin },
+                    y2: { title: { display: true, text: "HR (bpm)" }, position: "right", grid: { drawOnChartArea: false } },
                 },
             },
+            plugins: [{
+                id: "ltLabels",
+                afterDraw(chart) {
+                    const ctx   = chart.ctx;
+                    const xAxis = chart.scales.x;
+                    const yAxis = chart.scales.y;
+                    [[ltSpeed, "#f7b84f", "LT"], [iasSpeed, "#cc7700", "IAS"]].forEach(([spd, col, lbl]) => {
+                        if (!spd) return;
+                        const px = xAxis.getPixelForValue(spd);
+                        ctx.save();
+                        ctx.fillStyle = col;
+                        ctx.font = "bold 11px sans-serif";
+                        ctx.fillText(lbl, px + 4, yAxis.top + 14);
+                        ctx.restore();
+                    });
+                },
+            }],
         });
     });
 
@@ -2177,15 +2226,23 @@ async function loadForm() {
     const stSessions   = currentUser.strength_enabled ? (strengthSessions ?? []) : [];
     const series       = calcFitnessSeries(allActivities, currentUser, 180, stSessions);
     const last         = series[series.length - 1] || { atl: 0, ctl: 0, tsb: 0 };
-    const vo2maxTest   = lactateTests?.[0]?.vo2max ?? null;
+
+    // VO2max: Laktattest verliert Priorität nach Alter
+    // < 1 Jahr: höchste Priorität · 1–2 Jahre: Fallback nach aktuellen Laufdaten · > 2 Jahre: ignoriert
+    const latestTest  = lactateTests?.[0] ?? null;
+    const testAgeDays = latestTest?.test_date
+        ? (Date.now() - new Date(latestTest.test_date)) / 86400000 : Infinity;
+    const vo2maxTestFresh = testAgeDays < 365  ? (latestTest?.vo2max ?? null) : null;
+    const vo2maxTestOld   = testAgeDays < 730  ? (latestTest?.vo2max ?? null) : null;
     const vo2maxRecent = calcVo2maxFromPRs(prStandard, 180);
     const vo2maxActs   = calcVo2max(allActivities);
     const vo2maxOld    = calcVo2maxFromPRs(prStandard, 1825);
-    const vo2max       = vo2maxTest ?? vo2maxRecent ?? vo2maxActs ?? vo2maxOld;
-    const vo2maxHint   = vo2maxTest   ? `Laktattest ${fmtDate(lactateTests[0].test_date)}` :
-                         vo2maxRecent ? "" :
-                         vo2maxActs   ? "aus Trainingsdaten" :
-                         vo2maxOld    ? "⚠ PR veraltet (> 6 Monate)" : "";
+    const vo2max       = vo2maxTestFresh ?? vo2maxRecent ?? vo2maxActs ?? vo2maxTestOld ?? vo2maxOld;
+    const vo2maxHint   = vo2maxTestFresh ? `Laktattest ${fmtDate(latestTest.test_date)}` :
+                         vo2maxRecent    ? "" :
+                         vo2maxActs      ? "aus Trainingsdaten" :
+                         vo2maxTestOld   ? `Laktattest ${fmtDate(latestTest.test_date)} (> 1 Jahr alt)` :
+                         vo2maxOld       ? "⚠ PR veraltet (> 6 Monate)" : "";
     const stCount42    = stSessions.filter(s => new Date(s.session_date) >= new Date(Date.now() - 42*86400000)).length;
     const weekly       = calcWeeklyTrimp(allActivities, currentUser, 20, stSessions);
     const zoneDist     = calcZoneDistForm(allActivities, currentUser, 90);
